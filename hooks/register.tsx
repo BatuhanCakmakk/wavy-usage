@@ -1,0 +1,560 @@
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
+
+import type { LogEntry, Reading, Turn } from '../types'
+import type { Lang, Strings } from './i18n'
+import { resolveLang, STRINGS } from './i18n'
+import type { Group, WindowView } from './model'
+import {
+  bandLayout,
+  breakdown,
+  cacheState,
+  clockTime,
+  costText,
+  countdown,
+  ctxDeltaText,
+  dayClock,
+  FIVE_HOURS,
+  isStaleLog,
+  isUnknown,
+  nudge,
+  nudgeText,
+  parseTtl,
+  percentText,
+  projectName,
+  recentTurns,
+  recordTurn,
+  SEVEN_DAYS,
+  settleTurn,
+  syncLog,
+  takeReading,
+  tokens,
+  TTL_1H,
+  TTL_5M,
+  ttlText,
+  turnTotal,
+  upgradeTurn,
+  windowElapsed,
+  windowStart,
+  windowTotals,
+} from './model'
+import type { JetLevel } from './jet'
+import { jetLevel, jetStrip } from './jet'
+import { liquidRing, resetBar, SEGMENTS, ttlColor, turnBar } from './svg'
+import { terminalParts } from './terminal'
+
+// Limit windows, context fill, cache warmth and cost: rings above the prompt, detail in a side pane.
+// The figures arrive on session.measure and turn.complete (what the last API response already reported): no extra
+// requests, no tokens. Svg rings and a pane on desktop, a one-line text band in the terminal. Strings live in i18n.ts.
+
+const MOD = 'wavy-usage'
+const PANE = 'wavy-usage'
+const ENABLED_KEY = 'wavy-usage:enabled'
+const TTL_KEY = 'wavy-usage:ttl'
+const LOG_PREFIX = 'wavy-usage:log:'
+const EFFORT_KEY = 'wavy-usage:effort'
+const TICK_MS = 60 * 1000
+// Band rings at 2x: the text keeps the app's size (Text has no size prop), the ring grows.
+const BAND_RING = 44
+const BAND_STROKE = 5
+const JET_W = 130
+const JET_H = 44
+const JET_SCALE = 1.25
+const JET_PANE_H = 84
+const JET_PANE_SCALE = 2.6
+
+const reading = atom({ plugin: 'wavy-usage', key: 'reading' } as const, null as Reading | null)
+const history = atom({ plugin: 'wavy-usage', key: 'history' } as const, [] as Turn[])
+const isPaneOpen = atom({ plugin: 'wavy-usage', key: 'isPaneOpen' } as const, false)
+const isEnabled = atom({ plugin: 'wavy-usage', key: 'isEnabled' } as const, true)
+const lastRequestAt = atom({ plugin: 'wavy-usage', key: 'lastRequestAt' } as const, null as number | null)
+const ttlMs = atom({ plugin: 'wavy-usage', key: 'ttlMs' } as const, TTL_1H)
+const log = atom({ plugin: 'wavy-usage', key: 'log' } as const, [] as LogEntry[])
+const others = atom({ plugin: 'wavy-usage', key: 'others' } as const, [] as LogEntry[])
+const windowView = atom({ plugin: 'wavy-usage', key: 'windowView' } as const, '5h' as WindowView)
+// The main loop's effort, from turn.step; the last one seen is kept so a new session shows the jet before its first request.
+const effort = atom({ plugin: 'wavy-usage', key: 'effort' } as const, null as JetLevel | null)
+
+let disabled = false
+let nudgedAt = 0
+let hasLoggedRenderError = false
+let sessionId = '?'
+let project = '?'
+let lang: Lang = 'en'
+let t: Strings = STRINGS.en
+
+// The level each ring was last drawn at: on the next draw the liquid slides from there. Keys are language-neutral.
+const lastLevel = new Map<string, number>()
+
+const levelFrom = (key: string, percent: number | undefined): number => {
+  const from = lastLevel.get(key) ?? 0
+  lastLevel.set(key, percent ?? 0)
+  return from
+}
+
+const shownName = (name: string): string => (isUnknown(name) ? t.unknown : name)
+
+// CLAUDE_MODS_DISABLE=all, or wavy-usage in its comma list: every hook passes through and no command is registered.
+const readDisabled = async ($: EngineInterface): Promise<boolean> => {
+  const raw = (await $.env.get('CLAUDE_MODS_DISABLE').catch(() => undefined)) ?? ''
+  disabled = raw
+    .split(',')
+    .map(v => v.trim())
+    .some(v => v === 'all' || v === MOD)
+  return disabled
+}
+
+const logRenderError = ($: EngineInterface, err: unknown): void => {
+  if (hasLoggedRenderError) return
+  hasLoggedRenderError = true
+  $.ui.log(`wavy-usage: render failed, fell back to the engine's drawing: ${err}`)
+}
+
+// Other sessions' logs: read once when the pane opens and when the tab changes; stale keys are deleted.
+const loadOthers = async ($: EngineInterface): Promise<void> => {
+  const now = await $.clock.now()
+  const own = LOG_PREFIX + sessionId
+  const keys = (await $.store.keys().catch(() => [] as string[])).filter(k => k.startsWith(LOG_PREFIX) && k !== own)
+  const all: LogEntry[] = []
+  for (const key of keys) {
+    const entries = await $.store.get(key).catch(() => undefined)
+    if (isStaleLog(entries, now)) {
+      await $.store.delete(key).catch(() => undefined)
+      continue
+    }
+    all.push(...(entries as LogEntry[]))
+  }
+  await update($, others, () => all)
+}
+
+// This session's last turn (new, or corrected by a settle) is written to the log and to $.store.
+const syncOwnLog = async ($: EngineInterface): Promise<void> => {
+  const h = await read($, history)
+  const last = h.at(-1)
+  if (!last) return
+  const sessionModel = await $.session.model().catch(() => undefined)
+  const next = syncLog(await read($, log), last, h.at(-2), project, sessionModel)
+  await update($, log, () => next)
+  await $.store.set(LOG_PREFIX + sessionId, next).catch(() => undefined)
+}
+
+const openPane = async ($: EngineInterface): Promise<void> => {
+  await $.ui.open({ id: PANE, title: t.paneTitle })
+  await update($, isPaneOpen, () => true)
+  await loadOthers($)
+}
+
+// Always close through $.ui.close: the ui.close hook clears isPaneOpen the same way as when the person closes it.
+// It is cleared here too in case the plugin's own call skips its own hook.
+const closePane = async ($: EngineInterface): Promise<void> => {
+  await $.ui.close({ id: PANE })
+  await update($, isPaneOpen, () => false)
+}
+
+const togglePane = async ($: EngineInterface): Promise<void> =>
+  (await read($, isPaneOpen)) ? closePane($) : openPane($)
+
+const switchWindow = async ($: EngineInterface, view: WindowView): Promise<void> => {
+  await update($, windowView, () => view)
+  await loadOthers($)
+}
+
+export const register: Register = (on, options) => {
+  on('session.start', async ($, e, next) => {
+    const r = await next(e)
+    // Module variables start clean on every load (and in every test of a file).
+    nudgedAt = 0
+    hasLoggedRenderError = false
+    lastLevel.clear()
+    if (await readDisabled($)) return r
+    // Language: userConfig > Claude Code's language setting > system locale > English.
+    const rows = await $.config.list().catch(() => [])
+    const claudeLanguage = rows.find(row => row.key === 'language')?.value
+    lang = resolveLang(options.language, claudeLanguage, Intl.DateTimeFormat().resolvedOptions().locale)
+    t = STRINGS[lang]
+    const stored = await $.store.get(ENABLED_KEY).catch(() => undefined)
+    await update($, isEnabled, () => stored !== false)
+    // A hot reload keeps $.state: turns from earlier versions with a single cache field are upgraded.
+    await update($, history, h => h.map(turn => upgradeTurn(turn)))
+    sessionId = await $.session.id().catch(() => '?')
+    project = projectName((await $.session.cwd().catch(() => undefined)) ?? '')
+    const ttl = await $.store.get(TTL_KEY).catch(() => undefined)
+    await update($, ttlMs, () => (ttl === TTL_5M ? TTL_5M : TTL_1H))
+    const lastEffort = await $.store.get(EFFORT_KEY).catch(() => undefined)
+    await update($, effort, () => jetLevel(lastEffort))
+    await loadOthers($)
+    await $.command
+      .register({
+        name: 'wavy-usage',
+        description: t.cmdDescription,
+        argumentHint: '[on | off | ttl 5m | ttl 1h]',
+        immediate: true,
+      })
+      .catch(err => $.ui.log(`wavy-usage: /wavy-usage not registered: ${err}`))
+    // Once a minute while on: the cache countdown and the pane's reset counters.
+    $.clock.every(TICK_MS, () => {
+      void read($, isEnabled)
+        .then(isOn => {
+          if (isOn) $.ui.invalidate('ui.render')
+        })
+        .catch(() => undefined)
+    })
+    return r
+  })
+
+  on('session.measure', async ($, e, next) => {
+    const r = await next(e)
+    if (disabled) return r
+    const fresh = takeReading(e)
+    await update($, reading, () => fresh)
+    const pct = fresh.ctxPercent
+    const ctxChanged = e.changed.includes('context') && pct !== undefined
+    const costChanged = e.changed.includes('cost') && fresh.usd !== undefined
+    if (ctxChanged || costChanged) {
+      const now = await $.clock.now()
+      const patch = { ...(ctxChanged && { ctxPercent: pct }), ...(costChanged && { usd: fresh.usd }) }
+      await update($, history, h => settleTurn(h, patch, now))
+      await syncOwnLog($)
+    }
+    if (pct === undefined || !ctxChanged) return r
+    const n = nudge(pct, nudgedAt)
+    nudgedAt = n.nudgedAt
+    if (n.shouldToast && (await read($, isEnabled))) $.ui.toast(nudgeText(pct, t), { timeoutMs: 8000 })
+    return r
+  })
+
+  // Subagent turns stay out of the history and do not refresh the main conversation's cache clock.
+  on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
+    if (disabled || e.agentId || !e.usage) return r
+    const usage = e.usage
+    const current = await read($, reading)
+    const now = await $.clock.now()
+    await update($, history, h => recordTurn(h, usage, current?.ctxPercent ?? 0, current?.usd, now))
+    await update($, lastRequestAt, () => now)
+    await syncOwnLog($)
+    return r
+  })
+
+  // Every main-loop request names its effort: the jet appears at high and above, and follows a change on the next request.
+  on('turn.step', async function* ($, e, next) {
+    if (!disabled && !e.agentId) {
+      const level = jetLevel(e.effort)
+      if (level !== (await read($, effort).catch(() => null))) {
+        await update($, effort, () => level).catch(() => undefined)
+        await $.store.set(EFFORT_KEY, level).catch(() => undefined)
+      }
+    }
+    return yield* next(e)
+  })
+
+  on('ui.close', async ($, e, next) => {
+    const r = await next(e)
+    if (e.id === PANE) await update($, isPaneOpen, () => false)
+    return r
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (disabled) return next(e)
+    if (e.surface !== 'desktop') {
+      const { Text } = $.ui.resolve(e)
+      return <Text dimColor>{t.desktopOnlyPane}</Text>
+    }
+    // Closing is the desktop header's own × control; the ui.close hook clears isPaneOpen.
+    try {
+      const { Box, Button, Svg, Text } = $.ui.resolve(e)
+      const r = await read($, reading)
+      const turns = await read($, history)
+      const now = await $.clock.now()
+      const width = Math.min(640, Math.max(160, e.props.bodyColumns * 7))
+      const recent = recentTurns(turns)
+      const scale = Math.max(0, ...recent.map(({ turn }) => turnTotal(turn)))
+      const barWidth = Math.max(60, width - 210)
+      const view = await read($, windowView)
+      const since = windowStart(view, r, now)
+      const entries = [...(await read($, others)), ...(await read($, log))]
+      const totals = windowTotals(entries, since)
+      const shareWidth = Math.max(60, width - 230)
+      const ttl = await read($, ttlMs)
+      const cache = cacheState(await read($, lastRequestAt), ttl, now, t)
+      const big = (id: string, label: string, percent: number | undefined, extra?: string, value?: string, color?: string) => (
+        <Box key={`big-${id}`} flexDirection="column" alignItems="center">
+          <Svg
+            source={liquidRing(percent, 64, 6, levelFrom(`pane-${id}`, percent), color)}
+            alt={`${label} ${value ?? percentText(percent)}`}
+            width={64}
+            height={64}
+            isInteractive
+          />
+          <Text dimColor>{label}</Text>
+          <Text bold>{value ?? percentText(percent)}</Text>
+          {extra !== undefined && <Text dimColor>{extra}</Text>}
+        </Box>
+      )
+      const resetWidth = Math.max(60, width - 40)
+      const resetRow = (label: string, at: number, length: number, clock: string) => (
+        <Box key={`reset-${label}`} flexDirection="column">
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Box width={6}>
+              <Text bold>{label}</Text>
+            </Box>
+            <Svg source={resetBar(windowElapsed(at, now, length), resetWidth)} alt={t.elapsedAlt(label)} width={resetWidth} height={8} />
+          </Box>
+          <Text dimColor>{t.inTime(countdown(at - now, t.units), clock)}</Text>
+        </Box>
+      )
+      const groupRows = (groups: Group[]) => {
+        const max = Math.max(0, ...groups.map(g => g.usd))
+        return groups.map(g => (
+          <Box key={`g-${g.name}`} flexDirection="row" gap={1} alignItems="center">
+            <Box width={14}>
+              <Text wrap="truncate">{shownName(g.name)}</Text>
+            </Box>
+            <Svg
+              source={resetBar(max > 0 ? g.usd / max : 0, shareWidth)}
+              alt={`${shownName(g.name)}: ${g.usd > 0 ? costText(g.usd) : t.noCost}`}
+              width={shareWidth}
+              height={8}
+            />
+            <Box width={7}>
+              <Text bold>{g.usd > 0 ? costText(g.usd) : '-'}</Text>
+            </Box>
+            <Text dimColor>{t.turns(g.turns)}</Text>
+          </Box>
+        ))
+      }
+      const legend = [
+        ['in', t.legendIn],
+        ['out', t.legendOut],
+        ['cacheWrite', t.legendCacheWrite],
+        ['cacheRead', t.legendCacheRead],
+      ] as const
+      const fiveAt = r?.fiveHourResetsAt
+      const sevenAt = r?.sevenDayResetsAt
+      const level = await read($, effort)
+      return (
+        <Box flexDirection="column" gap={1}>
+          {level !== null && (
+            <Box key="jet" flexDirection="column">
+              <Svg
+                source={jetStrip(level, width, JET_PANE_H, JET_PANE_SCALE, t.effort(level), 'jp')}
+                alt={t.effort(level)}
+                width={width}
+                height={JET_PANE_H}
+                isInteractive
+              />
+              <Text dimColor>{t.effort(level)}</Text>
+            </Box>
+          )}
+          {r === null ? (
+            <Text dimColor>{t.waitingPane}</Text>
+          ) : (
+            <Box flexDirection="row" justifyContent="space-around">
+              {r.fiveHour !== undefined && big('5h', t.win5h, r.fiveHour)}
+              {r.sevenDay !== undefined && big('7d', t.win7d, r.sevenDay)}
+              {big('ctx', t.ctx, r.ctxPercent, r.ctxTokens !== undefined ? `${tokens(r.ctxTokens)} / ${tokens(r.ctxWindow)}` : undefined)}
+              {cache !== null && big('cache', t.cache, cache.percent, t.ttl(ttlText(ttl, t)), cache.text, ttlColor(cache.percent))}
+            </Box>
+          )}
+          <Text bold>{t.lastTurns}</Text>
+          {recent.length === 0 ? (
+            <Text dimColor>{t.noTurns}</Text>
+          ) : (
+            <Box flexDirection="column">
+              {recent.map(({ turn, delta, cost }) => (
+                <Box key={`turn-${turn.n}`} flexDirection="row" gap={1} alignItems="center">
+                  <Box width={9}>
+                    <Text dimColor>{t.turn(turn.n)}</Text>
+                  </Box>
+                  <Svg
+                    source={turnBar(turn, scale, barWidth)}
+                    alt={t.barAlt(turn.n, tokens(turn.in), tokens(turn.out), tokens(turn.cacheWrite), tokens(turn.cacheRead))}
+                    width={barWidth}
+                    height={10}
+                  />
+                  <Box width={6}>
+                    <Text bold>{tokens(turnTotal(turn))}</Text>
+                  </Box>
+                  <Box width={7}>
+                    <Text>{costText(cost)}</Text>
+                  </Box>
+                  <Text dimColor>{ctxDeltaText(delta, turn.ctxPercent)}</Text>
+                </Box>
+              ))}
+              <Box flexDirection="row" gap={2}>
+                {legend.map(([k, label]) => (
+                  <Box key={`legend-${k}`} flexDirection="row" gap={1}>
+                    <Text color={SEGMENTS[k]}>■</Text>
+                    <Text dimColor>{label}</Text>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+          <Box flexDirection="row" gap={1} alignItems="center">
+            <Text bold>{t.filledBy}</Text>
+            <Box flexGrow={1} />
+            <Button key="win-5h" label={t.win5h} variant={view === '5h' ? 'primary' : 'secondary'} onPress={() => switchWindow($, '5h')} />
+            <Button key="win-7d" label={t.win7d} variant={view === '7d' ? 'primary' : 'secondary'} onPress={() => switchWindow($, '7d')} />
+          </Box>
+          {totals.turns === 0 ? (
+            <Text dimColor>{t.noEntries}</Text>
+          ) : (
+            <Box flexDirection="column">
+              <Text dimColor>{t.summary(view, totals.turns, tokens(totals.tokens), costText(totals.usd))}</Text>
+              <Text bold>{t.byProject}</Text>
+              {groupRows(breakdown(entries, since, 'project'))}
+              <Text bold>{t.byModel}</Text>
+              {groupRows(breakdown(entries, since, 'model'))}
+            </Box>
+          )}
+          <Text dimColor>{t.localOnly}</Text>
+          {(fiveAt !== undefined || sevenAt !== undefined) && (
+            <Box flexDirection="column">
+              <Text bold>{t.resets}</Text>
+              {fiveAt !== undefined && resetRow(t.win5h, fiveAt, FIVE_HOURS, t.atClock(clockTime(fiveAt)))}
+              {sevenAt !== undefined && resetRow(t.win7d, sevenAt, SEVEN_DAYS, dayClock(sevenAt, lang))}
+            </Box>
+          )}
+        </Box>
+      )
+    } catch (err) {
+      logRenderError($, err)
+      return next(e)
+    }
+  })
+
+  // The band: liquid rings and a pane button on desktop, one text line in the terminal. Other plugins' bands stay below.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (disabled || e.props.hasSurvey) return next(e)
+    if (!(await read($, isEnabled))) return next(e)
+    if (e.surface === 'terminal') {
+      try {
+        const { Box, Text } = $.ui.resolve(e)
+        const r = await read($, reading)
+        const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
+        const rest = await next(e)
+        const level = await read($, effort)
+        const parts = [
+          ...terminalParts(r, cache, e.props.bodyColumns, t),
+          ...(level === null ? [] : [{ text: `  ✈ ${level}`, color: level === 'max' ? 'magenta' : level === 'xhigh' ? 'red' : 'yellow' }]),
+        ]
+        return (
+          <Box flexDirection="column">
+            <Text wrap="truncate">
+              {parts.map((p, i) => (
+                <Text key={String(i)} color={p.color} dimColor={p.dim} bold={p.bold}>
+                  {p.text}
+                </Text>
+              ))}
+            </Text>
+            {rest}
+          </Box>
+        )
+      } catch (err) {
+        logRenderError($, err)
+        return next(e)
+      }
+    }
+    if (e.surface !== 'desktop') return next(e)
+    try {
+      const { Box, Button, Svg, Text } = $.ui.resolve(e)
+      const r = await read($, reading)
+      const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
+      const rest = await next(e)
+      const layout = bandLayout(e.props.bodyColumns)
+      const level = await read($, effort)
+      const metric = (id: string, label: string, percent: number | undefined, extra?: string, value?: string, color?: string) => (
+        <Box key={`m-${id}`} flexDirection="row" gap={1} alignItems="center">
+          <Svg
+            source={liquidRing(percent, BAND_RING, BAND_STROKE, levelFrom(`band-${id}`, percent), color)}
+            alt={`${label} ${value ?? percentText(percent)}`}
+            width={BAND_RING}
+            height={BAND_RING}
+            isInteractive
+          />
+          <Box flexDirection="column">
+            <Text dimColor>{label}</Text>
+            <Box flexDirection="row" gap={1}>
+              <Text bold>{value ?? percentText(percent)}</Text>
+              {extra !== undefined && <Text dimColor>{`· ${extra}`}</Text>}
+            </Box>
+          </Box>
+        </Box>
+      )
+      // A finished turn means the API answered: the cache ring shows even before a measurement.
+      const cacheMetric = cache !== null && metric('cache', t.cache, cache.percent, undefined, cache.text, ttlColor(cache.percent))
+      const metrics =
+        r === null
+          ? [
+              metric('5h', t.win5h, undefined),
+              metric('7d', t.win7d, undefined),
+              metric('ctx', t.ctx, undefined),
+              cacheMetric,
+              <Text dimColor>{t.waitingBand}</Text>,
+            ]
+          : [
+              r.fiveHour !== undefined && metric('5h', t.win5h, r.fiveHour),
+              r.sevenDay !== undefined && metric('7d', t.win7d, r.sevenDay),
+              metric('ctx', t.ctx, r.ctxPercent, layout.showCtxTokens && r.ctxTokens !== undefined ? tokens(r.ctxTokens) : undefined),
+              cacheMetric,
+              layout.showCost && r.usd !== undefined && <Text dimColor>{`$${r.usd.toFixed(2)}`}</Text>,
+            ]
+      return (
+        <Box flexDirection="column">
+          <Box flexDirection="row" gap={2} alignItems="center">
+            {metrics}
+            <Box flexGrow={1} />
+            {level !== null && layout.showJet && (
+              <Svg
+                key="jet"
+                source={jetStrip(level, JET_W, JET_H, JET_SCALE, t.effort(level), 'jb')}
+                alt={t.effort(level)}
+                width={JET_W}
+                height={JET_H}
+                isInteractive
+              />
+            )}
+            <Button key="pane" label={t.panel} dimColor onPress={() => togglePane($)} />
+          </Box>
+          {rest}
+        </Box>
+      )
+    } catch (err) {
+      logRenderError($, err)
+      return next(e)
+    }
+  })
+
+  on('command.run', { command: 'wavy-usage' }, async ($, e) => {
+    const arg = e.args.trim().toLowerCase()
+    if (arg === 'on') {
+      await update($, isEnabled, () => true)
+      await $.store.set(ENABLED_KEY, true).catch(() => undefined)
+      const u = await $.session.usage().catch(() => undefined)
+      if (u) await update($, reading, () => takeReading(u))
+      return { text: t.turnedOn }
+    }
+    if (arg === 'off') {
+      await update($, isEnabled, () => false)
+      await $.store.set(ENABLED_KEY, false).catch(() => undefined)
+      if (await read($, isPaneOpen)) await closePane($)
+      return { text: t.turnedOff }
+    }
+    const ttl = /^ttl\s+(\S+)$/.exec(arg)
+    if (ttl) {
+      const ms = parseTtl(ttl[1] ?? '')
+      if (ms === undefined) return { text: t.ttlUnknown(ttl[1] ?? '') }
+      await update($, ttlMs, () => ms)
+      await $.store.set(TTL_KEY, ms).catch(() => undefined)
+      return { text: t.ttlSet(ttlText(ms, t)) }
+    }
+    if (arg === '') {
+      if (!(await read($, isEnabled))) return { text: t.turnedOff }
+      const wasOpen = await read($, isPaneOpen)
+      await togglePane($)
+      return { text: wasOpen ? t.paneClosed : t.paneOpened }
+    }
+    return { text: t.argUnknown(arg) }
+  })
+}

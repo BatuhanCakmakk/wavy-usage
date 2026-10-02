@@ -1,0 +1,17 @@
+{
+  "name": "wavy-usage",
+  "owner": {
+    "name": "Batuhan Çakmak",
+    "url": "https://github.com/BatuhanCakmakk"
+  },
+  "description": "wavy-usage: liquid-filled usage rings above the Claude Code prompt",
+  "plugins": [
+    {
+      "name": "wavy-usage",
+      "source": "./",
+      "description": "Liquid-filled rings above the Claude Code prompt for the 5-hour and 7-day limit windows, context fill and prompt-cache lifetime, a fighter jet while effort is high or above, and a pane of recent turns, their cost and what filled the window.",
+      "homepage": "https://github.com/BatuhanCakmakk/wavy-usage",
+      "repository": "https://github.com/BatuhanCakmakk/wavy-usage"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "description": "session.measure ve turn.complete okumaları $.state'e yazar; ui.render AbovePrompt bandı, ui.render Pane paneli çizer; /wavy-usage açar, kapatır.",
+  "modules": ["./register.tsx"]
+}

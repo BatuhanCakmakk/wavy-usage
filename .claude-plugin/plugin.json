@@ -1,0 +1,40 @@
+{
+  "name": "wavy-usage",
+  "displayName": "Wavy Usage",
+  "version": "1.1.0",
+  "description": "Liquid-filled rings above the Claude Code prompt for the 5-hour and 7-day limit windows, context fill and prompt-cache lifetime, a fighter jet while effort is high or above, and a pane of recent turns, their cost and what filled the window.",
+  "author": {
+    "name": "Batuhan Çakmak",
+    "url": "https://github.com/BatuhanCakmakk"
+  },
+  "homepage": "https://github.com/BatuhanCakmakk/wavy-usage",
+  "repository": "https://github.com/BatuhanCakmakk/wavy-usage",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the rings, the pane and the messages. auto follows Claude Code's language setting, then the system locale.",
+      "options": [
+        "auto",
+        "en",
+        "tr",
+        "fr",
+        "de",
+        "ja",
+        "ko",
+        "pt-BR",
+        "es"
+      ],
+      "default": "auto"
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-mod",
+    "function-hooks",
+    "usage",
+    "effort"
+  ]
+}
