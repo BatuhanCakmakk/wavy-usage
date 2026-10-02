@@ -2,6 +2,8 @@
 // tail and canopy are rolled about the jet's long axis and projected each frame, so banks and rolls show the wings
 // tilting. Pure SMIL, precomputed here: the desktop Svg element runs it without scripts.
 
+import { SCHEME } from './svg'
+
 export type JetLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 type Pace = { period: number; wind: number; flame: number; color: string; lines: number; shock: boolean }
@@ -235,7 +237,7 @@ export const jetStrip = (level: JetLevel, width: number, height: number, scale: 
   const pace = PACE[level]
   const { defs, body } = jet(pace, id)
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${SCHEME}` +
     `<title>${escape(title)}</title><defs>${defs}</defs>${wind(pace, width, height, scale)}` +
     `<g transform="translate(${n2(width / 2 + 6)},${n2(height / 2 + 2)}) scale(${scale})">${body}</g></svg>`
   if (cache.size > 24) cache.clear()

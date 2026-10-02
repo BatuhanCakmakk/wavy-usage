@@ -11,8 +11,12 @@ export const CHART = '#378ADD'
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 const f = (n: number): string => n.toFixed(2)
+// An interactive Svg is a framed document: without a color scheme it takes the light one and, on a dark theme, the
+// frame is painted white behind it. Following the page's scheme keeps the frame transparent on both.
+export const SCHEME = '<style>:root,svg{color-scheme:light dark}</style>'
+
 const open = (width: number, height: number): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${SCHEME}`
 
 const RISE = '1.2s'
 

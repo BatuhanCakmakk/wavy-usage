@@ -4,9 +4,15 @@ Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit wi
 
 Zero tokens: everything is read from what Claude Code already knows. No network, no model calls.
 
-![The band above the prompt](docs/band.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/band-dark.png">
+  <img alt="The band above the prompt" src="docs/band.png">
+</picture>
 
-![The pane](docs/pane.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/pane-dark.png">
+  <img alt="The pane" src="docs/pane.png">
+</picture>
 
 ![The effort jet](docs/jet.png)
 
@@ -39,7 +45,7 @@ The liquid rises and falls with the value and keeps a gentle wave. Rings turn am
 ◔ 5h 34%  ○ 7d 12%  ◑ ctx 62% 124k  ◕ cache 47m  $1.23
 ```
 
-The pane is drawn on desktop only.
+The pane is drawn on desktop only. Both the band and the pane follow the app's light or dark theme.
 
 When the context passes 55%, a toast suggests `/clear` for a new task or `/compact` to keep going, once per new tenth.
 
