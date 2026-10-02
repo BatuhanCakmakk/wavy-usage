@@ -27,7 +27,7 @@ describe('liquidRing', () => {
   test('no arc and no liquid without a value or at 0', async () => {
     for (const svg of [liquidRing(undefined, 22, 3), liquidRing(0, 22, 3)]) {
       expect(svg).not.toContain('stroke-dasharray')
-      expect(svg).not.toContain('<path')
+      expect(svg).not.toContain('clip-path')
     }
   })
 
@@ -36,12 +36,25 @@ describe('liquidRing', () => {
     expect(Math.abs(arcLength(liquidRing(140, 64, 6)) - 2 * Math.PI * r)).toBeLessThan(0.01)
   })
 
-  test('two endless waves clipped to the inner circle', async () => {
+  test('endless waves clipped to the inner circle', async () => {
     const svg = liquidRing(50, 64, 6)
     expect(svg).toContain('<clipPath id="liq"><circle cx="32" cy="32" r="24.00"/></clipPath>')
-    expect(svg.match(/repeatCount="indefinite"/g)).toHaveLength(2)
-    expect(svg).toContain('dur="2.2s"')
-    expect(svg).toContain('dur="3.4s"')
+    expect(svg).toContain('dur="1.9s"')
+    expect(svg).toContain('dur="3s"')
+  })
+
+  test('the fuller the ring, the faster its waves and the more bubbles rise', async () => {
+    const bubbles = (svg: string): number => svg.match(/fill="#fff" opacity="0"/g)?.length ?? 0
+    const calm = liquidRing(30, 64, 6)
+    const hot = liquidRing(90, 64, 6)
+    expect(calm).toContain('dur="2.6s"')
+    expect(hot).toContain('dur="1.25s"')
+    expect(bubbles(calm)).toBe(2)
+    expect(bubbles(hot)).toBe(5)
+    expect(bubbles(liquidRing(90, 44, 5))).toBe(3)
+    expect(bubbles(liquidRing(5, 64, 6))).toBe(0)
+    expect(hot).toContain('values="0.7;0"')
+    expect(calm).not.toContain('values="0.7;0"')
   })
 
   test('the 50% level sits at the center', async () => {
@@ -52,7 +65,9 @@ describe('liquidRing', () => {
 
   test('the level rises once given from, no animation when equal', async () => {
     const rising = liquidRing(50, 64, 6, 0)
-    expect(rising).toContain('from="0 24.00" to="0 0" dur="1.2s" fill="freeze"')
+    expect(rising).toContain('values="0 24.00;0 -1.68;0 0"')
+    expect(rising).toContain('attributeName="stroke-dasharray" values="0.00 182.21;')
+    expect(rising).toContain('type="rotate" values="0.00 32 32;')
     expect(liquidRing(50, 64, 6, 50)).not.toContain('fill="freeze"')
     expect(liquidRing(50, 64, 6)).not.toContain('fill="freeze"')
   })
@@ -61,10 +76,12 @@ describe('liquidRing', () => {
     const svg = liquidRing(90, 44, 5, undefined, '#123456')
     expect(svg).toContain('stroke="#123456"')
     expect(svg).not.toContain(COLORS.hot)
+    expect(svg).toContain('dur="2.6s"')
+    expect(svg).not.toContain('values="0.7;0"')
   })
 
   test('stays small', async () => {
-    expect(liquidRing(62, 64, 6, 10).length).toBeLessThan(3000)
+    expect(liquidRing(90, 64, 6, 10).length).toBeLessThan(6000)
   })
 })
 
