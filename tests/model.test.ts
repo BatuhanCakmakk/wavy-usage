@@ -308,12 +308,17 @@ describe('syncLog', () => {
 
   test('adds the last turn, cost against the previous; rewriting the same turn updates it', async () => {
     const first = syncLog([], t(1, 1), undefined, 'Claude Mods')
-    expect(first).toEqual([{ id: '1', at: NOW + 1, project: 'Claude Mods', model: 'opus-5-5', tokens: 10 }])
+    expect(first).toEqual([{ id: String(NOW + 1), at: NOW + 1, project: 'Claude Mods', model: 'opus-5-5', tokens: 10 }])
     const second = syncLog(first, t(2, 1.3), t(1, 1), 'Claude Mods')
     expect(second.at(-1)?.usd?.toFixed(2)).toBe('0.30')
     const settled = syncLog(second, t(2, 1.5), t(1, 1), 'Claude Mods')
     expect(settled).toHaveLength(2)
     expect(settled.at(-1)?.usd?.toFixed(2)).toBe('0.50')
+  })
+
+  test('a turn logged under its older numbered id is replaced, not doubled', async () => {
+    const old = [{ id: '1', at: NOW + 1, project: 'Claude Mods', model: 'opus-5-5', tokens: 10 }]
+    expect(syncLog(old, t(1, 1), undefined, 'Claude Mods')).toHaveLength(1)
   })
 
   test("the session's first turn takes its cost from the cost at session start", async () => {

@@ -236,6 +236,12 @@ export const register: Register = (on, options) => {
     }
     sessionId = await $.session.id().catch(() => '?')
     project = projectName((await $.session.cwd().catch(() => undefined)) ?? '')
+    // A restart or a compact starts $.state empty: this session's earlier turns come back from $.store, or the next
+    // turn would overwrite them.
+    if ((await read($, log)).length === 0) {
+      const saved = await $.store.get(LOG_PREFIX + sessionId).catch(() => undefined)
+      if (Array.isArray(saved)) await update($, log, () => saved as LogEntry[])
+    }
     const ttl = await $.store.get(TTL_KEY).catch(() => undefined)
     await update($, ttlMs, () => (ttl === TTL_5M ? TTL_5M : TTL_1H))
     const lastEffort = await $.store.get(EFFORT_KEY).catch(() => undefined)

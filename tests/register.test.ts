@@ -484,6 +484,15 @@ describe('what filled the window', () => {
     expect(Array.isArray(own) && own.length).toBe(3)
   })
 
+  test('a restarted session keeps its earlier turns instead of overwriting them', async ($, on) => {
+    const w = world(on, { store: { 'wavy-usage:log:s-1': [other(NOW - HOUR_MS, 'Claude Mods', 'opus-5-5', 0.4), { ...other(NOW - MIN, 'Claude Mods', 'opus-5-5', 0.2), id: '2' }] } })
+    await $.session.start(session)
+    await $.turn.complete(turn({ turnId: 't0', usage: { input_tokens: 2000, output_tokens: 300, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 5_000, model: 'claude-opus-5-5' } }))
+    await $.session.measure(measure({ ...ctx(10), cost: { usd: 1 }, changed: ['context', 'cost'] }))
+    const own = w.stored.get('wavy-usage:log:s-1')
+    expect(Array.isArray(own) && own.length).toBe(3)
+  })
+
   test('the 7d tab shows older entries too', async ($, on) => {
     world(on, { store: { 'wavy-usage:log:s-0': [other(NOW - 2 * 24 * HOUR_MS, 'dotfiles', 'haiku-4-5', 0.2)] } })
     await $.session.start(session)

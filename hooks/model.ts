@@ -275,7 +275,7 @@ export const syncLog = (
   const fallback = sessionModel === undefined ? UNKNOWN : modelName(sessionModel)
   const usd = turnCost(turn, prev, baseUsd)
   const entry: LogEntry = {
-    id: String(turn.n),
+    id: String(turn.at),
     at: turn.at,
     project,
     model: turn.model === undefined ? fallback : modelName(turn.model),
@@ -283,7 +283,8 @@ export const syncLog = (
     ...(usd !== null && { usd }),
   }
   const repaired = log.map(e => (isUnknown(e.model) ? { ...e, model: fallback } : e))
-  return [...repaired.filter(e => e.id !== entry.id), entry].slice(-LOG_LIMIT)
+  // The same turn may sit under its older id (the turn number before v1.2.5): its time matches.
+  return [...repaired.filter(e => e.id !== entry.id && e.at !== entry.at), entry].slice(-LOG_LIMIT)
 }
 
 export type WindowView = '5h' | '7d'
