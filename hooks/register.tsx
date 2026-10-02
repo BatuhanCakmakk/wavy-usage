@@ -85,6 +85,8 @@ const others = atom({ plugin: 'wavy-usage', key: 'others' } as const, [] as LogE
 const windowView = atom({ plugin: 'wavy-usage', key: 'windowView' } as const, '5h' as WindowView)
 // The main loop's effort, from turn.step; the last one seen is kept so a new session shows the jet before its first request.
 const effort = atom({ plugin: 'wavy-usage', key: 'effort' } as const, null as JetLevel | null)
+// The session's cost when it started (0 when new, the restored total when resumed): the first turn's cost counts from it.
+const costBase = atom({ plugin: 'wavy-usage', key: 'costBase' } as const, undefined as number | undefined)
 
 let disabled = false
 let nudgedAt = 0
@@ -153,7 +155,7 @@ const syncOwnLog = async ($: EngineInterface): Promise<void> => {
   const last = h.at(-1)
   if (!last) return
   const sessionModel = await $.session.model().catch(() => undefined)
-  const next = syncLog(await read($, log), last, h.at(-2), project, sessionModel)
+  const next = syncLog(await read($, log), last, h.at(-2), project, sessionModel, await read($, costBase))
   await update($, log, () => next)
   await $.store.set(LOG_PREFIX + sessionId, next).catch(() => undefined)
 }
@@ -227,6 +229,11 @@ export const register: Register = (on, options) => {
     await update($, isEnabled, () => stored !== false)
     // A hot reload keeps $.state: turns from earlier versions with a single cache field are upgraded.
     await update($, history, h => h.map(turn => upgradeTurn(turn)))
+    // Taken before the first turn only: a hot reload mid-session keeps the base it had.
+    if ((await read($, history)).length === 0) {
+      const startUsd = (await $.session.usage().catch(() => undefined))?.cost?.usd
+      await update($, costBase, () => startUsd)
+    }
     sessionId = await $.session.id().catch(() => '?')
     project = projectName((await $.session.cwd().catch(() => undefined)) ?? '')
     const ttl = await $.store.get(TTL_KEY).catch(() => undefined)
@@ -348,7 +355,7 @@ export const register: Register = (on, options) => {
       const turns = shownNow.turns
       const now = await $.clock.now()
       const width = Math.min(640, Math.max(160, e.props.bodyColumns * 7))
-      const recent = recentTurns(turns)
+      const recent = recentTurns(turns, await read($, costBase))
       const scale = Math.max(0, ...recent.map(({ turn }) => turnTotal(turn)))
       const barWidth = Math.max(60, width - 230)
       const view = await read($, windowView)

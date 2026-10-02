@@ -228,6 +228,14 @@ describe('recentTurns', () => {
     expect(recentTurns(h)[0]?.cost).toBeNull()
   })
 
+  test("the session's first turn counts from the cost at session start; a trimmed oldest turn does not", async () => {
+    expect(recentTurns(recordTurn([], usage, 41, 1, NOW), 0)[0]?.cost).toBe(1)
+    expect(recentTurns(recordTurn([], usage, 41, 5.5, NOW), 5)[0]?.cost).toBe(0.5)
+    let h: Turn[] = []
+    for (let i = 0; i < 7; i++) h = recordTurn(h, usage, 10, i + 1, NOW + i)
+    expect(recentTurns(h.slice(-1), 0)[0]?.cost).toBeNull()
+  })
+
   test('the total sums the four parts', async () => {
     expect(turnTotal({ n: 1, at: NOW, ctxPercent: 0, in: 10, out: 20, cacheRead: 30, cacheWrite: 40 })).toBe(100)
   })
@@ -306,6 +314,11 @@ describe('syncLog', () => {
     const settled = syncLog(second, t(2, 1.5), t(1, 1), 'Claude Mods')
     expect(settled).toHaveLength(2)
     expect(settled.at(-1)?.usd?.toFixed(2)).toBe('0.50')
+  })
+
+  test("the session's first turn takes its cost from the cost at session start", async () => {
+    expect(syncLog([], t(1, 0.06), undefined, 'Claude Mods', undefined, 0)[0]?.usd).toBe(0.06)
+    expect(syncLog([], t(1, 2.5), undefined, 'Claude Mods', undefined, 2)[0]?.usd).toBe(0.5)
   })
 
   test("the session's model when the turn has none; old unknown rows are fixed with it", async () => {

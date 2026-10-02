@@ -80,7 +80,7 @@ function world(on: On, opts: { env?: Record<string, string>; store?: Record<stri
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   // With language auto, Claude Code's language setting is read; fixed here so tests do not depend on the machine's locale.
   on('config.list', () => ({ value: [{ key: 'language', value: opts.claudeLanguage ?? 'turkish' }] }))
-  on('session.usage', () => ({ value: { startedAt: NOW, ...measure() } }))
+  on('session.usage', () => ({ value: { startedAt: NOW, ...measure(), cost: { usd: 0 } } }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.invalidate', () => {
@@ -475,7 +475,7 @@ describe('what filled the window', () => {
     expect(await pane.find({ type: 'Text', text: 'volty-api' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: 'opus-5-5' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: 'sonnet-5-5' })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: '$1.50' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '$2.50' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: 'Son 5 saatte 4 tur' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: 'eski' })).toBeUndefined()
     expect(w.deleted).toContain('wavy-usage:log:s-old')

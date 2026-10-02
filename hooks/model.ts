@@ -162,17 +162,24 @@ export const turnTotal = (t: Turn): number => t.in + t.out + t.cacheRead + t.cac
 
 // The last RECENT turns, newest first. delta: the turn's ctx minus the previous turn's; cost: the session's total
 // cost at the turn's end minus the previous one's (the engine's own ledger); five: how far the 5-hour window moved
-// over the turn (negative when it reset in between). All null without a previous turn.
+// over the turn (negative when it reset in between). All null without a previous turn, except the session's first
+// turn's cost, which counts from baseUsd (the session's cost when it started).
 export type RecentTurn = { turn: Turn; delta: number | null; cost: number | null; five: number | null }
 
-export const recentTurns = (history: readonly Turn[]): RecentTurn[] =>
+// The session's total before the turn is the previous turn's, or for the first turn the cost at session start.
+const turnCost = (turn: Turn, prev: Turn | undefined, baseUsd: number | undefined): number | null => {
+  const before = prev ? prev.usd : turn.n === 1 ? baseUsd : undefined
+  return before !== undefined && turn.usd !== undefined ? turn.usd - before : null
+}
+
+export const recentTurns = (history: readonly Turn[], baseUsd?: number): RecentTurn[] =>
   history
     .map((turn, i) => {
       const prev = i > 0 ? history[i - 1] : undefined
       return {
         turn,
         delta: prev ? turn.ctxPercent - prev.ctxPercent : null,
-        cost: prev?.usd !== undefined && turn.usd !== undefined ? turn.usd - prev.usd : null,
+        cost: turnCost(turn, prev, baseUsd),
         five: prev?.fiveHour !== undefined && turn.fiveHour !== undefined ? turn.fiveHour - prev.fiveHour : null,
       }
     })
@@ -263,15 +270,17 @@ export const syncLog = (
   prev: Turn | undefined,
   project: string,
   sessionModel?: string,
+  baseUsd?: number,
 ): LogEntry[] => {
   const fallback = sessionModel === undefined ? UNKNOWN : modelName(sessionModel)
+  const usd = turnCost(turn, prev, baseUsd)
   const entry: LogEntry = {
     id: String(turn.n),
     at: turn.at,
     project,
     model: turn.model === undefined ? fallback : modelName(turn.model),
     tokens: turnTotal(turn),
-    ...(prev?.usd !== undefined && turn.usd !== undefined && { usd: turn.usd - prev.usd }),
+    ...(usd !== null && { usd }),
   }
   const repaired = log.map(e => (isUnknown(e.model) ? { ...e, model: fallback } : e))
   return [...repaired.filter(e => e.id !== entry.id), entry].slice(-LOG_LIMIT)
