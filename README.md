@@ -8,6 +8,8 @@ Zero tokens: everything is read from what Claude Code already knows. No network,
 
 ![The pane](docs/pane.png)
 
+![The effort jet](docs/jet.png)
+
 ## What you get
 
 **The band** (above the prompt, Claude Code desktop)
