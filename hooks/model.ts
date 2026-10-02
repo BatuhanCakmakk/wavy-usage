@@ -208,6 +208,9 @@ export const costText = (cost: number | null): string => {
   return cost < 0.01 ? '<$0.01' : `$${cost.toFixed(2)}`
 }
 
+// The cache ring drains every minute; drawn in 5% steps its Svg changes (and reloads) every few minutes instead.
+export const ringStep = (percent: number): number => Math.round(percent / 5) * 5
+
 export const TTL_1H = 60 * 60 * 1000
 export const TTL_5M = 5 * 60 * 1000
 export const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000

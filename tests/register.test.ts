@@ -217,6 +217,18 @@ describe('panel', () => {
 })
 
 describe('band', () => {
+  test('a redraw at the same values keeps every ring source identical (no frame reload)', async ($, on) => {
+    world(on)
+    await $.session.start(session)
+    await $.session.measure(measure())
+    const band = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: bandProps() })
+    await band.redraw()
+    const first = (await band.findAll({ type: 'Svg' })).map(s => s.props.source)
+    await band.redraw()
+    const second = (await band.findAll({ type: 'Svg' })).map(s => s.props.source)
+    expect(second).toEqual(first)
+  })
+
   test('the last known high effort flies the jet left of the pane button, not on a narrow band', async ($, on) => {
     world(on, { store: { 'wavy-usage:effort': 'max' } })
     await $.session.start(session)
@@ -319,7 +331,7 @@ describe('band', () => {
     expect(columns).toHaveLength(1)
   })
 
-  test('rings are interactive and liquid; they rise on the first draw, not on a redraw with the same value', async ($, on) => {
+  test('rings are interactive and liquid; they rise on the first draw and keep the same source on a redraw', async ($, on) => {
     world(on)
     await $.session.start(session)
     await $.session.measure(measure())
@@ -330,7 +342,7 @@ describe('band', () => {
     expect(first.every(s => String(s.props.source).includes('fill="freeze"'))).toBe(true)
     await band.redraw()
     const again = await band.findAll({ type: 'Svg' })
-    expect(again.some(s => String(s.props.source).includes('fill="freeze"'))).toBe(false)
+    expect(again.map(s => s.props.source)).toEqual(first.map(s => s.props.source))
   })
 })
 

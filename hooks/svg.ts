@@ -63,7 +63,8 @@ export const liquidRing = (
     p > 0
       ? `<circle cx="${h}" cy="${h}" r="${f(r)}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round" stroke-dasharray="${f((c * p) / 100)} ${f(c)}" transform="rotate(-90 ${h} ${h})"/>`
       : ''
-  return `${open(size, size)}${base}${fill}${track}${arc}</svg>`
+  // When the desktop does reload the frame (a new value), the ring fades in instead of popping.
+  return `${open(size, size)}<g><animate attributeName="opacity" from="0" to="1" dur="0.3s"/>${base}${fill}${track}${arc}</g></svg>`
 }
 
 // Cache TTL ring: calm while plenty is left, the warning color in its last fifth.

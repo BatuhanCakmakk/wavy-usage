@@ -24,6 +24,7 @@ import {
   percentText,
   projectName,
   recentTurns,
+  ringStep,
   recordTurn,
   SEVEN_DAYS,
   settleTurn,
@@ -87,12 +88,17 @@ let project = '?'
 let lang: Lang = 'en'
 let t: Strings = STRINGS.en
 
-// The level each ring was last drawn at: on the next draw the liquid slides from there. Keys are language-neutral.
-const lastLevel = new Map<string, number>()
+// Each ring's last move: the liquid slides from `from` to `to`. A redraw at the same level returns the same `from`, so
+// the Svg source stays byte-identical and the desktop keeps its frame instead of reloading it (a reload blinks and
+// restarts the waves). Keys are language-neutral.
+const lastLevel = new Map<string, { from: number; to: number }>()
 
 const levelFrom = (key: string, percent: number | undefined): number => {
-  const from = lastLevel.get(key) ?? 0
-  lastLevel.set(key, percent ?? 0)
+  const to = percent ?? 0
+  const last = lastLevel.get(key)
+  if (last && last.to === to) return last.from
+  const from = last?.to ?? 0
+  lastLevel.set(key, { from, to })
   return from
 }
 
@@ -378,7 +384,7 @@ export const register: Register = (on, options) => {
               {r.fiveHour !== undefined && big('5h', t.win5h, r.fiveHour)}
               {r.sevenDay !== undefined && big('7d', t.win7d, r.sevenDay)}
               {big('ctx', t.ctx, r.ctxPercent, r.ctxTokens !== undefined ? `${tokens(r.ctxTokens)} / ${tokens(r.ctxWindow)}` : undefined)}
-              {cache !== null && big('cache', t.cache, cache.percent, t.ttl(ttlText(ttl, t)), cache.text, ttlColor(cache.percent))}
+              {cache !== null && big('cache', t.cache, ringStep(cache.percent), t.ttl(ttlText(ttl, t)), cache.text, ttlColor(cache.percent))}
             </Box>
           )}
           <Box flexDirection="column">
@@ -542,7 +548,7 @@ export const register: Register = (on, options) => {
         </Box>
       )
       // A finished turn means the API answered: the cache ring shows even before a measurement.
-      const cacheMetric = cache !== null && metric('cache', t.cache, cache.percent, undefined, cache.text, ttlColor(cache.percent))
+      const cacheMetric = cache !== null && metric('cache', t.cache, ringStep(cache.percent), undefined, cache.text, ttlColor(cache.percent))
       const metrics =
         r === null
           ? [
