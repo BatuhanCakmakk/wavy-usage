@@ -4,15 +4,9 @@ Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit wi
 
 Zero tokens: everything is read from what Claude Code already knows. No network, no model calls.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/band-dark.png">
-  <img alt="The band above the prompt" src="docs/band.png">
-</picture>
+![The band above the prompt](docs/band.png)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/pane-dark.png">
-  <img alt="The pane" src="docs/pane.png">
-</picture>
+![The pane](docs/pane.png)
 
 ![The effort jet](docs/jet.png)
 
@@ -137,3 +131,11 @@ Inspired by [usage-band](https://github.com/yash-gadodia/claude-mods/tree/main/u
 ## License
 
 [MIT](LICENSE) © 2026 Batuhan Çakmak
+
+## Dark theme
+
+The band and the pane follow the app's dark theme.
+
+![The band on a dark theme](docs/band-dark.png)
+
+![The pane on a dark theme](docs/pane-dark.png)
