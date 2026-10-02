@@ -217,6 +217,22 @@ describe('panel', () => {
 })
 
 describe('band', () => {
+  test('mid-turn measurements wait: the rings move when the prompt finishes', async ($, on) => {
+    const w = world(on)
+    await $.session.start(session)
+    await $.session.measure(measure(ctx(30)))
+    await $.turn.complete(turn())
+    const band = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: bandProps() })
+    await w.clock.advance(10 * 1000)
+    await $.session.measure(measure(ctx(60)))
+    await band.redraw()
+    expect(await band.find({ type: 'Text', text: '30%' })).toBeDefined()
+    expect(await band.findAll({ type: 'Text', text: '60%' })).toHaveLength(0)
+    await $.turn.complete(turn({ turnId: 't2' }))
+    await band.redraw()
+    expect(await band.find({ type: 'Text', text: '60%' })).toBeDefined()
+  })
+
   test('a redraw at the same values keeps every ring source identical (no frame reload)', async ($, on) => {
     world(on)
     await $.session.start(session)

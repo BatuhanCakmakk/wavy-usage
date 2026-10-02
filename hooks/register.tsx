@@ -27,6 +27,7 @@ import {
   ringStep,
   recordTurn,
   SEVEN_DAYS,
+  SETTLE_MS,
   settleTurn,
   syncLog,
   takeReading,
@@ -69,6 +70,9 @@ const JET_PANE_SCALE = 2.6
 const JET_TERMINAL_COLOR: Record<JetLevel, string> = { low: 'magenta', medium: 'red', high: 'yellow', xhigh: 'yellow', max: 'cyan' }
 
 const reading = atom({ plugin: 'wavy-usage', key: 'reading' } as const, null as Reading | null)
+// What the band and the pane draw: the reading as of the last finished turn (plus a measurement settling it), so the
+// rings hold still while a prompt runs instead of redrawing on every mid-turn measurement.
+const shown = atom({ plugin: 'wavy-usage', key: 'shown' } as const, null as Reading | null)
 const history = atom({ plugin: 'wavy-usage', key: 'history' } as const, [] as Turn[])
 const isPaneOpen = atom({ plugin: 'wavy-usage', key: 'isPaneOpen' } as const, false)
 const isEnabled = atom({ plugin: 'wavy-usage', key: 'isEnabled' } as const, true)
@@ -83,6 +87,7 @@ const effort = atom({ plugin: 'wavy-usage', key: 'effort' } as const, null as Je
 let disabled = false
 let nudgedAt = 0
 let hasLoggedRenderError = false
+let lastTurnEnd = 0
 let sessionId = '?'
 let project = '?'
 let lang: Lang = 'en'
@@ -174,6 +179,7 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     // Module variables start clean on every load (and in every test of a file).
     nudgedAt = 0
+    lastTurnEnd = 0
     hasLoggedRenderError = false
     lastLevel.clear()
     if (await readDisabled($)) return r
@@ -217,6 +223,8 @@ export const register: Register = (on, options) => {
     if (disabled) return r
     const fresh = takeReading(e)
     await update($, reading, () => fresh)
+    const at = await $.clock.now()
+    if ((await read($, shown)) === null || at - lastTurnEnd <= SETTLE_MS) await update($, shown, () => fresh)
     const pct = fresh.ctxPercent
     const ctxChanged = e.changed.includes('context') && pct !== undefined
     const costChanged = e.changed.includes('cost') && fresh.usd !== undefined
@@ -247,6 +255,8 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     await update($, history, h => recordTurn(h, usage, current?.ctxPercent ?? 0, current?.usd, now, current?.fiveHour))
     await update($, lastRequestAt, () => now)
+    lastTurnEnd = now
+    if (current) await update($, shown, () => current)
     await syncOwnLog($)
     return r
   })
@@ -278,7 +288,7 @@ export const register: Register = (on, options) => {
     // Closing is the desktop header's own × control; the ui.close hook clears isPaneOpen.
     try {
       const { Box, Button, Svg, Text } = $.ui.resolve(e)
-      const r = await read($, reading)
+      const r = await read($, shown)
       const turns = await read($, history)
       const now = await $.clock.now()
       const width = Math.min(640, Math.max(160, e.props.bodyColumns * 7))
@@ -496,7 +506,7 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal') {
       try {
         const { Box, Text } = $.ui.resolve(e)
-        const r = await read($, reading)
+        const r = await read($, shown)
         const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
         const rest = await next(e)
         const level = await read($, effort)
@@ -524,7 +534,7 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'desktop') return next(e)
     try {
       const { Box, Button, Svg, Text } = $.ui.resolve(e)
-      const r = await read($, reading)
+      const r = await read($, shown)
       const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
       const rest = await next(e)
       const layout = bandLayout(e.props.bodyColumns)
@@ -597,7 +607,10 @@ export const register: Register = (on, options) => {
       await update($, isEnabled, () => true)
       await $.store.set(ENABLED_KEY, true).catch(() => undefined)
       const u = await $.session.usage().catch(() => undefined)
-      if (u) await update($, reading, () => takeReading(u))
+      if (u) {
+        await update($, reading, () => takeReading(u))
+        await update($, shown, () => takeReading(u))
+      }
       return { text: t.turnedOn }
     }
     if (arg === 'off') {

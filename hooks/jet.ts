@@ -236,8 +236,8 @@ export const jetStrip = (level: JetLevel, width: number, height: number, scale: 
   const { defs, body } = jet(pace, id)
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<title>${escape(title)}</title><defs>${defs}</defs><g><animate attributeName="opacity" from="0" to="1" dur="0.3s"/>${wind(pace, width, height, scale)}` +
-    `<g transform="translate(${n2(width / 2 + 6)},${n2(height / 2 + 2)}) scale(${scale})">${body}</g></g></svg>`
+    `<title>${escape(title)}</title><defs>${defs}</defs>${wind(pace, width, height, scale)}` +
+    `<g transform="translate(${n2(width / 2 + 6)},${n2(height / 2 + 2)}) scale(${scale})">${body}</g></svg>`
   if (cache.size > 24) cache.clear()
   cache.set(key, svg)
   return svg
