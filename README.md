@@ -8,6 +8,10 @@ Zero tokens: everything is read from what Claude Code already knows. No network,
 
 ![The pane](docs/pane.png)
 
+![The band on a dark theme](docs/band-dark.png)
+
+![The pane on a dark theme](docs/pane-dark.png)
+
 ![The effort jet](docs/jet.png)
 
 ## What you get
@@ -131,11 +135,3 @@ Inspired by [usage-band](https://github.com/yash-gadodia/claude-mods/tree/main/u
 ## License
 
 [MIT](LICENSE) © 2026 Batuhan Çakmak
-
-## Dark theme
-
-The band and the pane follow the app's dark theme.
-
-![The band on a dark theme](docs/band-dark.png)
-
-![The pane on a dark theme](docs/pane-dark.png)
