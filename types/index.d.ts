@@ -48,7 +48,7 @@ declare module 'claude-code' {
       log: LogEntry[]
       others: LogEntry[]
       windowView: '5h' | '7d'
-      shown: Reading | null
+      screen: { reading: Reading | null; turns: Turn[]; lastRequestAt: number | null; log: LogEntry[] }
       effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
     }
   }

@@ -183,10 +183,12 @@ describe('panel', () => {
   })
 
   test('a subagent turn stays out of the history', async ($, on) => {
-    world(on)
+    const w = world(on)
     await $.session.start(session)
     await $.turn.complete(turn())
     await $.turn.complete(turn({ agentId: 'a1' }))
+    // No settling measurement came: the next minute tick publishes the finished prompt.
+    await w.clock.advance(MIN)
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
     const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d/ })).map(t => String(t.text).split(' ')[0])
     expect(labels).toEqual(['#1'])

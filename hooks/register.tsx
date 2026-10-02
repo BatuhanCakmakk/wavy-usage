@@ -71,9 +71,10 @@ const JET_PANE_SCALE = 2.6
 const JET_TERMINAL_COLOR: Record<JetLevel, string> = { low: 'magenta', medium: 'red', high: 'yellow', xhigh: 'yellow', max: 'cyan' }
 
 const reading = atom({ plugin: 'wavy-usage', key: 'reading' } as const, null as Reading | null)
-// What the band and the pane draw: the reading as of the last finished turn (plus a measurement settling it), so the
-// rings hold still while a prompt runs instead of redrawing on every mid-turn measurement.
-const shown = atom({ plugin: 'wavy-usage', key: 'shown' } as const, null as Reading | null)
+// What the band and the pane draw, published in one piece: once when a prompt finishes (after the measurement that
+// settles it), never on mid-turn or idle measurements. One publish is one redraw; an identical one is skipped.
+type Screen = { reading: Reading | null; turns: Turn[]; lastRequestAt: number | null; log: LogEntry[] }
+const screen = atom({ plugin: 'wavy-usage', key: 'screen' } as const, { reading: null, turns: [], lastRequestAt: null, log: [] } as Screen)
 const history = atom({ plugin: 'wavy-usage', key: 'history' } as const, [] as Turn[])
 const isPaneOpen = atom({ plugin: 'wavy-usage', key: 'isPaneOpen' } as const, false)
 const isEnabled = atom({ plugin: 'wavy-usage', key: 'isEnabled' } as const, true)
@@ -90,6 +91,8 @@ let nudgedAt = 0
 let hasLoggedRenderError = false
 let lastTurnEnd = 0
 let lastFace = ''
+let lastMeasureAt = 0
+let awaitingSettle = false
 let sessionId = '?'
 let project = '?'
 let lang: Lang = 'en'
@@ -176,14 +179,26 @@ const switchWindow = async ($: EngineInterface, view: WindowView): Promise<void>
   await loadOthers($)
 }
 
+const publish = async ($: EngineInterface): Promise<void> => {
+  const next: Screen = {
+    reading: await read($, reading),
+    turns: await read($, history),
+    lastRequestAt: await read($, lastRequestAt),
+    log: await read($, log),
+  }
+  if (JSON.stringify(await read($, screen)) === JSON.stringify(next)) return
+  await update($, screen, () => next)
+}
+
 // The time-driven figures as drawn now, or null while the band is off.
 const clockFace = async ($: EngineInterface): Promise<string | null> => {
   if (!(await read($, isEnabled))) return null
   const now = await $.clock.now()
-  const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), now, t)
+  const shownNow = await read($, screen)
+  const cache = cacheState(shownNow.lastRequestAt, await read($, ttlMs), now, t)
   const parts = [cache === null ? '' : `${ringStep(cache.percent)} ${cache.text}`]
   if (await read($, isPaneOpen)) {
-    const r = await read($, shown)
+    const r = shownNow.reading
     for (const at of [r?.fiveHourResetsAt, r?.sevenDayResetsAt]) {
       if (at !== undefined) parts.push(countdown(at - now, t.units, COUNTDOWN_STEP))
     }
@@ -198,6 +213,8 @@ export const register: Register = (on, options) => {
     nudgedAt = 0
     lastTurnEnd = 0
     lastFace = ''
+    lastMeasureAt = 0
+    awaitingSettle = false
     hasLoggedRenderError = false
     lastLevel.clear()
     if (await readDisabled($)) return r
@@ -217,6 +234,7 @@ export const register: Register = (on, options) => {
     const lastEffort = await $.store.get(EFFORT_KEY).catch(() => undefined)
     await update($, effort, () => jetLevel(lastEffort))
     await loadOthers($)
+    await publish($)
     await $.command
       .register({
         name: 'wavy-usage',
@@ -229,7 +247,14 @@ export const register: Register = (on, options) => {
     // Once a minute, redraw only if a time-driven figure on screen would read differently: the cache ring's step and
     // countdown, and while the pane is open its reset countdowns. An unchanged screen is left alone.
     $.clock.every(TICK_MS, () => {
-      void clockFace($)
+      void (async () => {
+        // A finished prompt whose settling measurement never came is published on the next tick.
+        if (awaitingSettle && (await $.clock.now()) - lastTurnEnd > SETTLE_MS) {
+          awaitingSettle = false
+          await publish($)
+        }
+        return clockFace($)
+      })()
         .then(face => {
           if (face === null || face === lastFace) return
           lastFace = face
@@ -246,7 +271,7 @@ export const register: Register = (on, options) => {
     const fresh = takeReading(e)
     await update($, reading, () => fresh)
     const at = await $.clock.now()
-    if ((await read($, shown)) === null || at - lastTurnEnd <= SETTLE_MS) await update($, shown, () => fresh)
+    lastMeasureAt = at
     const pct = fresh.ctxPercent
     const ctxChanged = e.changed.includes('context') && pct !== undefined
     const costChanged = e.changed.includes('cost') && fresh.usd !== undefined
@@ -260,6 +285,11 @@ export const register: Register = (on, options) => {
       }
       await update($, history, h => settleTurn(h, patch, now))
       await syncOwnLog($)
+    }
+    // The first reading of a session shows at once; after that only the measurement settling a finished prompt.
+    if ((await read($, screen)).reading === null || (awaitingSettle && at - lastTurnEnd <= SETTLE_MS)) {
+      awaitingSettle = false
+      await publish($)
     }
     if (pct === undefined || !ctxChanged) return r
     const n = nudge(pct, nudgedAt)
@@ -278,8 +308,11 @@ export const register: Register = (on, options) => {
     await update($, history, h => recordTurn(h, usage, current?.ctxPercent ?? 0, current?.usd, now, current?.fiveHour))
     await update($, lastRequestAt, () => now)
     lastTurnEnd = now
-    if (current) await update($, shown, () => current)
     await syncOwnLog($)
+    // The settling measurement may already have come (the two arrive in no fixed order): publish now. Otherwise wait
+    // for it, so the prompt's end draws once.
+    if (now - lastMeasureAt <= SETTLE_MS) await publish($)
+    else awaitingSettle = true
     return r
   })
 
@@ -310,8 +343,9 @@ export const register: Register = (on, options) => {
     // Closing is the desktop header's own × control; the ui.close hook clears isPaneOpen.
     try {
       const { Box, Button, Svg, Text } = $.ui.resolve(e)
-      const r = await read($, shown)
-      const turns = await read($, history)
+      const shownNow = await read($, screen)
+      const r = shownNow.reading
+      const turns = shownNow.turns
       const now = await $.clock.now()
       const width = Math.min(640, Math.max(160, e.props.bodyColumns * 7))
       const recent = recentTurns(turns)
@@ -319,11 +353,11 @@ export const register: Register = (on, options) => {
       const barWidth = Math.max(60, width - 230)
       const view = await read($, windowView)
       const since = windowStart(view, r, now)
-      const entries = [...(await read($, others)), ...(await read($, log))]
+      const entries = [...(await read($, others)), ...shownNow.log]
       const totals = windowTotals(entries, since)
       const shareWidth = Math.max(60, width - 230)
       const ttl = await read($, ttlMs)
-      const cache = cacheState(await read($, lastRequestAt), ttl, now, t)
+      const cache = cacheState(shownNow.lastRequestAt, ttl, now, t)
       const big = (id: string, label: string, percent: number | undefined, extra?: string, value?: string, color?: string) => (
         <Box key={`big-${id}`} flexDirection="column" alignItems="center">
           <Svg
@@ -528,8 +562,9 @@ export const register: Register = (on, options) => {
     if (e.surface === 'terminal') {
       try {
         const { Box, Text } = $.ui.resolve(e)
-        const r = await read($, shown)
-        const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
+        const shownNow = await read($, screen)
+        const r = shownNow.reading
+        const cache = cacheState(shownNow.lastRequestAt, await read($, ttlMs), await $.clock.now(), t)
         const rest = await next(e)
         const level = await read($, effort)
         const parts = [
@@ -556,8 +591,9 @@ export const register: Register = (on, options) => {
     if (e.surface !== 'desktop') return next(e)
     try {
       const { Box, Button, Svg, Text } = $.ui.resolve(e)
-      const r = await read($, shown)
-      const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), await $.clock.now(), t)
+      const shownNow = await read($, screen)
+      const r = shownNow.reading
+      const cache = cacheState(shownNow.lastRequestAt, await read($, ttlMs), await $.clock.now(), t)
       const rest = await next(e)
       const layout = bandLayout(e.props.bodyColumns)
       const level = await read($, effort)
@@ -631,7 +667,7 @@ export const register: Register = (on, options) => {
       const u = await $.session.usage().catch(() => undefined)
       if (u) {
         await update($, reading, () => takeReading(u))
-        await update($, shown, () => takeReading(u))
+        await publish($)
       }
       return { text: t.turnedOn }
     }
