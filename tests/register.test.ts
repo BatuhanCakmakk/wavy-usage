@@ -315,12 +315,16 @@ describe('band', () => {
     expect(w.closed).toEqual(['wavy-usage'])
   })
 
-  test('a redraw every minute while on, none while off', async ($, on) => {
+  test('the minute timer redraws only when a time-driven figure changes, never while off', async ($, on) => {
     const w = world(on)
     await $.session.start(session)
-    const before = w.invalidations()
+    await $.turn.complete(turn())
     await w.clock.advance(MIN)
-    expect(w.invalidations()).toBeGreaterThan(before)
+    const first = w.invalidations()
+    await w.clock.advance(MIN)
+    expect(w.invalidations()).toBe(first)
+    await w.clock.advance(4 * MIN)
+    expect(w.invalidations()).toBeGreaterThan(first)
     await $.command.run(command('off'))
     const off = w.invalidations()
     await w.clock.advance(MIN)
@@ -418,7 +422,7 @@ describe('cache TTL', () => {
     expect(await band.findAll({ type: 'Svg' })).toHaveLength(4)
     await w.clock.advance(13 * MIN)
     await band.redraw()
-    expect(await band.find({ type: 'Text', text: '47dk' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: '50dk' })).toBeDefined()
     await w.clock.advance(47 * MIN)
     await band.redraw()
     expect(await band.find({ type: 'Text', text: 'soğuk' })).toBeDefined()

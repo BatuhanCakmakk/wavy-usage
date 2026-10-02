@@ -41,9 +41,10 @@ export const percentText = (percent: number | undefined): string =>
   percent === undefined ? '-' : `${Math.round(percent)}%`
 
 // Under a day: hours and minutes; over a day: days and hours (minutes are noise for the 7-day window).
-export const countdown = (ms: number, u: Units = STRINGS.tr.units): string => {
+// step: minutes are rounded up to it (5 keeps a long countdown from changing, and redrawing, every minute).
+export const countdown = (ms: number, u: Units = STRINGS.tr.units, step = 1): string => {
   const part = (n: number, unit: string) => `${n}${u.numSep}${unit}`
-  const m = Math.max(0, Math.ceil(ms / 60000))
+  const m = Math.max(0, Math.ceil(ms / 60000 / step) * step)
   if (m < 60) return part(m, u.m)
   if (m >= 24 * 60) {
     const days = Math.floor(m / (24 * 60))
@@ -220,6 +221,8 @@ export const LOG_LIMIT = 2000
 export type CacheState = { percent: number; text: string; isWarm: boolean }
 
 // The countdown starts at the turn's end, a little after its last request began, so it is an upper bound.
+export const COUNTDOWN_STEP = 5
+
 export const cacheState = (
   lastRequestAt: number | null,
   ttlMs: number,
@@ -229,8 +232,12 @@ export const cacheState = (
   if (lastRequestAt === null) return null
   const left = lastRequestAt + ttlMs - now
   if (left <= 0) return { percent: 0, text: t.cold, isWarm: false }
-  const text = left < 60_000 ? `<1${t.units.numSep}${t.units.m}` : countdown(left, t.units)
-  return { percent: (left / ttlMs) * 100, text, isWarm: true }
+  // A long lifetime counts down in 5-minute steps, matching the ring's 5% steps; the 5-minute one by the minute.
+  const step = ttlMs >= 30 * 60 * 1000 ? COUNTDOWN_STEP : 1
+  const text = left < 60_000 ? `<1${t.units.numSep}${t.units.m}` : countdown(left, t.units, step)
+  // The ring drains with the shown countdown, so both change on the same minute.
+  const stepMs = step * 60_000
+  return { percent: Math.min(100, (Math.ceil(left / stepMs) * stepMs * 100) / ttlMs), text, isWarm: true }
 }
 
 export const parseTtl = (arg: string): number | undefined => (arg === '5m' ? TTL_5M : arg === '1h' ? TTL_1H : undefined)

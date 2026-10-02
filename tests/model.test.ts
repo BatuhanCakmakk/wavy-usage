@@ -268,7 +268,8 @@ describe('upgradeTurn', () => {
 describe('cacheState', () => {
   test('nothing before the first request, then time left, <1dk in the last minute, cold when out', async () => {
     expect(cacheState(null, TTL_1H, NOW)).toBeNull()
-    expect(cacheState(NOW, TTL_1H, NOW + 13 * MIN)).toEqual({ percent: (47 / 60) * 100, text: '47dk', isWarm: true })
+    expect(cacheState(NOW, TTL_1H, NOW + 13 * MIN)).toEqual({ percent: (50 * 100) / 60, text: '50dk', isWarm: true })
+    expect(cacheState(NOW, TTL_1H, NOW + 16 * MIN)?.text).toBe('45dk')
     expect(cacheState(NOW, TTL_1H, NOW + 59.5 * MIN)?.text).toBe('<1dk')
     expect(cacheState(NOW, TTL_1H, NOW + 60 * MIN)).toEqual({ percent: 0, text: 'soğuk', isWarm: false })
     expect(cacheState(NOW, TTL_5M, NOW + 2 * MIN)?.text).toBe('3dk')

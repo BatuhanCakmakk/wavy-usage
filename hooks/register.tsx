@@ -12,6 +12,7 @@ import {
   clockTime,
   costText,
   countdown,
+  COUNTDOWN_STEP,
   ctxDeltaText,
   fiveDeltaText,
   dayClock,
@@ -88,6 +89,7 @@ let disabled = false
 let nudgedAt = 0
 let hasLoggedRenderError = false
 let lastTurnEnd = 0
+let lastFace = ''
 let sessionId = '?'
 let project = '?'
 let lang: Lang = 'en'
@@ -174,12 +176,28 @@ const switchWindow = async ($: EngineInterface, view: WindowView): Promise<void>
   await loadOthers($)
 }
 
+// The time-driven figures as drawn now, or null while the band is off.
+const clockFace = async ($: EngineInterface): Promise<string | null> => {
+  if (!(await read($, isEnabled))) return null
+  const now = await $.clock.now()
+  const cache = cacheState(await read($, lastRequestAt), await read($, ttlMs), now, t)
+  const parts = [cache === null ? '' : `${ringStep(cache.percent)} ${cache.text}`]
+  if (await read($, isPaneOpen)) {
+    const r = await read($, shown)
+    for (const at of [r?.fiveHourResetsAt, r?.sevenDayResetsAt]) {
+      if (at !== undefined) parts.push(countdown(at - now, t.units, COUNTDOWN_STEP))
+    }
+  }
+  return parts.join('|')
+}
+
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
     // Module variables start clean on every load (and in every test of a file).
     nudgedAt = 0
     lastTurnEnd = 0
+    lastFace = ''
     hasLoggedRenderError = false
     lastLevel.clear()
     if (await readDisabled($)) return r
@@ -208,10 +226,14 @@ export const register: Register = (on, options) => {
       })
       .catch(err => $.ui.log(`wavy-usage: /wavy-usage not registered: ${err}`))
     // Once a minute while on: the cache countdown and the pane's reset counters.
+    // Once a minute, redraw only if a time-driven figure on screen would read differently: the cache ring's step and
+    // countdown, and while the pane is open its reset countdowns. An unchanged screen is left alone.
     $.clock.every(TICK_MS, () => {
-      void read($, isEnabled)
-        .then(isOn => {
-          if (isOn) $.ui.invalidate('ui.render')
+      void clockFace($)
+        .then(face => {
+          if (face === null || face === lastFace) return
+          lastFace = face
+          $.ui.invalidate('ui.render')
         })
         .catch(() => undefined)
     })
@@ -325,7 +347,7 @@ export const register: Register = (on, options) => {
             </Box>
             <Svg source={resetBar(windowElapsed(at, now, length), resetWidth)} alt={t.elapsedAlt(label)} width={resetWidth} height={8} />
           </Box>
-          <Text dimColor>{t.inTime(countdown(at - now, t.units), clock)}</Text>
+          <Text dimColor>{t.inTime(countdown(at - now, t.units, COUNTDOWN_STEP), clock)}</Text>
         </Box>
       )
       const groupRows = (groups: Group[]) => {

@@ -21,7 +21,7 @@ Zero tokens: everything is read from what Claude Code already knows. No network,
 | `ctx` | Context window fill, with the token count |
 | `cache` | Time left before the prompt cache goes cold |
 
-The liquid rises and falls with the value and keeps a gentle wave. Rings turn amber past 50% and red past 75%. The cache ring drains as the cache lifetime runs out and turns amber in its last fifth. The session cost sits at the end of the band, and `Panel` opens the pane.
+The liquid rises and falls with the value and keeps a gentle wave. Rings turn amber past 50% and red past 75%. The cache ring drains as the cache lifetime runs out, in 5-minute steps for the 1-hour lifetime, and turns amber in its last fifth. The rings hold still while Claude works and move when the prompt finishes, and the band redraws only when something on it changes. The session cost sits at the end of the band, and `Panel` opens the pane.
 
 **The jet**: a small fighter jet flies just left of `Panel` and shows the model's effort. It banks right and left, then rolls through a corkscrew, with wind streaming past. Lower effort answers faster, so the jet flies faster: `low` races with a violet afterburner and shock diamonds, then `medium` (red), `high` (orange) and `xhigh` (amber), down to `max`, which cruises slowly with a small blue flame because it thinks longest. It hides on a narrow band, and the terminal shows `✈ low` and so on instead.
 
