@@ -1,21 +1,29 @@
-// A fighter jet flown while the model thinks hard (effort high and above). Side view of a small 3D model: the wings,
+// A fighter jet that shows the model's effort. Side view of a small 3D model: the wings,
 // tail and canopy are rolled about the jet's long axis and projected each frame, so banks and rolls show the wings
 // tilting. Pure SMIL, precomputed here: the desktop Svg element runs it without scripts.
 
-export type JetLevel = 'high' | 'xhigh' | 'max'
+export type JetLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 type Pace = { period: number; wind: number; flame: number; color: string; lines: number; shock: boolean }
 
-// Higher effort: a shorter maneuver cycle, faster wind, a longer and hotter flame.
+// Lower effort answers faster: low flies fastest (short cycle, fast wind, full afterburner with shock diamonds), max
+// cruises slowest (long cycle, slow wind, a small blue flame) since it thinks longest before answering.
 export const PACE: Record<JetLevel, Pace> = {
-  high: { period: 7.2, wind: 1.3, flame: 5, color: '#EF9F27', lines: 3, shock: false },
-  xhigh: { period: 6, wind: 0.8, flame: 8, color: '#E24B4A', lines: 5, shock: false },
-  max: { period: 4.8, wind: 0.45, flame: 11, color: '#7F77DD', lines: 8, shock: true },
+  low: { period: 3.6, wind: 0.35, flame: 12, color: '#7F77DD', lines: 8, shock: true },
+  medium: { period: 4.8, wind: 0.5, flame: 10, color: '#E24B4A', lines: 6, shock: false },
+  high: { period: 6, wind: 0.7, flame: 8, color: '#EF9F27', lines: 5, shock: false },
+  xhigh: { period: 7.2, wind: 0.95, flame: 6, color: '#F2C14E', lines: 4, shock: false },
+  max: { period: 8.4, wind: 1.3, flame: 4, color: '#85B7EB', lines: 3, shock: false },
 }
 
-// The effort turn.step reports: a level, or an integer budget (no jet for those).
-export const jetLevel = (effort: unknown): JetLevel | null =>
-  effort === 'high' || effort === 'xhigh' || effort === 'max' ? effort : null
+const LEVELS: readonly JetLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+// The effort turn.step reports: a level, or an integer thinking budget, flown as max (the slowest). A model without
+// effort reports none: no jet.
+export const jetLevel = (effort: unknown): JetLevel | null => {
+  if (typeof effort === 'number') return 'max'
+  return LEVELS.find(l => l === effort) ?? null
+}
 
 type P3 = readonly [number, number, number]
 type Frame = { phi: number; dx: number; dy: number; pitch: number }

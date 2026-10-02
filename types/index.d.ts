@@ -17,6 +17,8 @@ export type Turn = {
   at: number
   ctxPercent: number
   usd?: number
+  // The 5-hour window's percent used at the turn's end (account-wide).
+  fiveHour?: number
   model?: string
   in: number
   out: number
@@ -46,7 +48,7 @@ declare module 'claude-code' {
       log: LogEntry[]
       others: LogEntry[]
       windowView: '5h' | '7d'
-      effort: 'high' | 'xhigh' | 'max' | null
+      effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
     }
   }
 }

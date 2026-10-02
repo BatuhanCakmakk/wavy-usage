@@ -85,6 +85,7 @@ export const turnBar = (
   t: Pick<Turn, 'in' | 'out' | 'cacheWrite' | 'cacheRead'>,
   scale: number,
   width: number,
+  titles?: readonly [string, string, string, string],
 ): string => {
   const height = 10
   const unit = scale > 0 ? width / scale : 0
@@ -95,10 +96,12 @@ export const turnBar = (
     [t.cacheRead, SEGMENTS.cacheRead, ' fill-opacity="0.45"'],
   ]
   let x = 0
+  // With titles, each segment names itself on hover (the Svg must be interactive).
   const rects = parts
-    .map(([n, color, opacity]) => {
+    .map(([n, color, opacity], i) => {
       const w = n * unit
-      const rect = w > 0 ? `<rect x="${f(x)}" width="${f(w)}" height="${height}" fill="${color}"${opacity}/>` : ''
+      const title = titles ? `<title>${titles[i].replace(/&/g, '&amp;').replace(/</g, '&lt;')}</title>` : ''
+      const rect = w > 0 ? `<rect x="${f(x)}" width="${f(w)}" height="${height}" fill="${color}"${opacity}>${title}</rect>` : ''
       x += w
       return rect
     })

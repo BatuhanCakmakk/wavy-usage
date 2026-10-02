@@ -8,6 +8,7 @@ import {
   costText,
   countdown,
   ctxDeltaText,
+  fiveDeltaText,
   dayClock,
   heat,
   HISTORY_LIMIT,
@@ -369,5 +370,12 @@ describe('formatting per language', () => {
     expect(modelName(undefined)).toBe(UNKNOWN)
     const e = (model: string): LogEntry => ({ id: model, at: NOW, project: 'p', model, tokens: 1, usd: 1 })
     expect(breakdown([e('?'), e('bilinmiyor')], 0, 'model')).toEqual([{ name: UNKNOWN, tokens: 2, turns: 2, usd: 2 }])
+  })
+})
+
+describe('5-hour share per turn', () => {
+  test('one decimal, ±0, the reset word when the window went down, nothing when unknown', async () => {
+    expect([fiveDeltaText(0.4, 'reset'), fiveDeltaText(1, 'reset'), fiveDeltaText(0, 'reset')]).toEqual(['+0.4%', '+1%', '±0%'])
+    expect([fiveDeltaText(-80, 'reset'), fiveDeltaText(null, 'reset')]).toEqual(['reset', ''])
   })
 })

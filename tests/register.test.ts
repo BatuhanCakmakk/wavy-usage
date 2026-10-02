@@ -163,18 +163,21 @@ describe('panel', () => {
       await w.clock.advance(30 * 1000)
     }
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
-    const labels = (await pane.findAll({ type: 'Text', text: /^Tur \d+$/ })).map(t => t.text)
-    expect(labels).toEqual(['Tur 6', 'Tur 5', 'Tur 4', 'Tur 3', 'Tur 2'])
+    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d\d:\d\d$/ })).map(t => String(t.text).split(' ')[0])
+    expect(labels).toEqual(['#6', '#5', '#4', '#3', '#2'])
+    for (const head of ['Tur', 'Token dağılımı', 'Token', 'Maliyet', '5s']) {
+      expect(await pane.find({ type: 'Text', text: head })).toBeDefined()
+    }
     expect(await pane.findAll({ type: 'Text', text: '47k' })).toHaveLength(5)
-    expect(await pane.find({ type: 'Text', text: '-20%' })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: '±0%' })).toBeDefined()
     const bars = (await pane.findAll({ type: 'Svg' })).filter(s => String(s.props.alt).startsWith('Tur '))
     expect(bars).toHaveLength(5)
-    expect(String(bars[0]?.props.alt)).toBe('Tur 6: 2k in, 300 out, 5k cache yazma, 40k cache okuma')
+    expect(String(bars[0]?.props.alt)).toBe('Tur 6: 2k in, 300 out, 5k cache yazma, 40k cache okuma · ctx -20%')
+    expect(bars.every(b => b.props.isInteractive === true)).toBe(true)
+    expect(String(bars[0]?.props.source)).toContain('<title>cache okuma: 40k</title>')
     expect(await pane.find({ type: 'Text', text: '$0.10' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: '$1.00' })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: '<$0.01' })).toBeDefined()
-    for (const label of ['cache yazma', 'cache okuma']) {
+    for (const label of ['cache yazma: yeni içeriği saklama', 'cache okuma: sohbeti yeniden okuma (ucuz)']) {
       expect(await pane.find({ type: 'Text', text: label })).toBeDefined()
     }
   })
@@ -185,8 +188,8 @@ describe('panel', () => {
     await $.turn.complete(turn())
     await $.turn.complete(turn({ agentId: 'a1' }))
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
-    const labels = (await pane.findAll({ type: 'Text', text: /^Tur \d+$/ })).map(t => t.text)
-    expect(labels).toEqual(['Tur 1'])
+    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d\d:\d\d$/ })).map(t => String(t.text).split(' ')[0])
+    expect(labels).toEqual(['#1'])
   })
 
   test("closing is the desktop header's control: the pane's only buttons are the window tabs", async ($, on) => {

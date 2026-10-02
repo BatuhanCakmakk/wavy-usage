@@ -95,12 +95,14 @@ export const recordTurn = (
   ctxPercent: number,
   usd: number | undefined,
   at: number,
+  fiveHour?: number,
 ): Turn[] => {
   const turn: Turn = {
     n: (history.at(-1)?.n ?? 0) + 1,
     at,
     ctxPercent,
     ...(usd !== undefined && { usd }),
+    ...(fiveHour !== undefined && { fiveHour }),
     ...(usage.model !== undefined && { model: usage.model }),
     in: usage.input_tokens,
     out: usage.output_tokens,
@@ -114,7 +116,7 @@ export const recordTurn = (
 // belongs to that turn and corrects the fields it carries; a later one is the middle of the next turn.
 export const settleTurn = (
   history: readonly Turn[],
-  patch: { ctxPercent?: number; usd?: number },
+  patch: { ctxPercent?: number; usd?: number; fiveHour?: number },
   now: number,
 ): Turn[] => {
   const last = history.at(-1)
@@ -125,6 +127,7 @@ export const settleTurn = (
       ...last,
       ...(patch.ctxPercent !== undefined && { ctxPercent: patch.ctxPercent }),
       ...(patch.usd !== undefined && { usd: patch.usd }),
+      ...(patch.fiveHour !== undefined && { fiveHour: patch.fiveHour }),
     },
   ]
 }
@@ -154,10 +157,11 @@ export const RECENT = 5
 export const turnTotal = (t: Turn): number => t.in + t.out + t.cacheRead + t.cacheWrite
 
 // The last RECENT turns, newest first. delta: the turn's ctx minus the previous turn's; cost: the session's total
-// cost at the turn's end minus the previous one's (the engine's own ledger). Both null without a previous turn.
-export const recentTurns = (
-  history: readonly Turn[],
-): { turn: Turn; delta: number | null; cost: number | null }[] =>
+// cost at the turn's end minus the previous one's (the engine's own ledger); five: how far the 5-hour window moved
+// over the turn (negative when it reset in between). All null without a previous turn.
+export type RecentTurn = { turn: Turn; delta: number | null; cost: number | null; five: number | null }
+
+export const recentTurns = (history: readonly Turn[]): RecentTurn[] =>
   history
     .map((turn, i) => {
       const prev = i > 0 ? history[i - 1] : undefined
@@ -165,6 +169,7 @@ export const recentTurns = (
         turn,
         delta: prev ? turn.ctxPercent - prev.ctxPercent : null,
         cost: prev?.usd !== undefined && turn.usd !== undefined ? turn.usd - prev.usd : null,
+        five: prev?.fiveHour !== undefined && turn.fiveHour !== undefined ? turn.fiveHour - prev.fiveHour : null,
       }
     })
     .slice(-RECENT)
@@ -174,6 +179,25 @@ export const ctxDeltaText = (delta: number | null, ctxPercent: number): string =
   if (delta === null) return `${Math.round(ctxPercent)}%`
   const d = Math.round(delta)
   return d > 0 ? `+${d}%` : d < 0 ? `${d}%` : '±0%'
+}
+
+// The 5-hour window's move over one turn: +0.4%, +1%, ±0%, the reset word when it went down, '' when unknown.
+export const fiveDeltaText = (five: number | null, resetWord: string): string => {
+  if (five === null) return ''
+  if (five < 0) return resetWord
+  const n = Number(five.toFixed(1))
+  return n === 0 ? '±0%' : `+${n}%`
+}
+
+// The section's summary line: tokens, cost and the 5-hour window's growth over the shown turns (resets skipped).
+export const turnsSummary = (rows: readonly RecentTurn[]): { tokens: number; cost: number | null; five: number | null } => {
+  const costs = rows.map(r => r.cost).filter((c): c is number => c !== null)
+  const fives = rows.map(r => r.five).filter((f): f is number => f !== null && f >= 0)
+  return {
+    tokens: rows.reduce((a, r) => a + turnTotal(r.turn), 0),
+    cost: costs.length ? costs.reduce((a, c) => a + c, 0) : null,
+    five: fives.length ? fives.reduce((a, f) => a + f, 0) : null,
+  }
 }
 
 export const costText = (cost: number | null): string => {

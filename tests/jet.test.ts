@@ -3,9 +3,15 @@ import { describe, expect, test } from 'claude-code/testing'
 import { jetLevel, jetStrip, PACE } from '../hooks/jet'
 
 describe('jet', () => {
-  test('only high, xhigh and max fly the jet', async () => {
-    expect([jetLevel('low'), jetLevel('medium'), jetLevel(8000), jetLevel(undefined)]).toEqual([null, null, null, null])
-    expect([jetLevel('high'), jetLevel('xhigh'), jetLevel('max')]).toEqual(['high', 'xhigh', 'max'])
+  test('every effort level flies; a budget flies as max; no effort, no jet', async () => {
+    expect(['low', 'medium', 'high', 'xhigh', 'max'].map(jetLevel)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect([jetLevel(8000), jetLevel(undefined), jetLevel('turbo')]).toEqual(['max', null, null])
+  })
+
+  test('low effort answers fastest: the shortest cycle and the fastest wind', async () => {
+    expect(PACE.low.period).toBeLessThan(PACE.medium.period)
+    expect(PACE.high.period).toBeLessThan(PACE.max.period)
+    expect(PACE.low.wind).toBeLessThan(PACE.max.wind)
   })
 
   test('a sized svg whose cycle and flame follow the effort', async () => {

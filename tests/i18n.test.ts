@@ -16,7 +16,7 @@ describe('STRINGS', () => {
     for (const lang of LANGS) {
       const s = STRINGS[lang]
       for (const text of [
-        s.turn(3),
+        s.turnsTotal('1k', '$1', '5h +1%'),
         s.turns(2),
         s.summary('5h', 2, '1M', '$1.00'),
         s.inTime('2h', '16:00'),

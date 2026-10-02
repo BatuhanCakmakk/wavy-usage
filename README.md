@@ -1,6 +1,6 @@
 # wavy-usage
 
-Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit windows, how full the context is, and how long the prompt cache stays warm. A small fighter jet flies while the model thinks at high effort. A side pane shows your last turns, what each one cost, and which projects and models filled the window.
+Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit windows, how full the context is, and how long the prompt cache stays warm. A small fighter jet shows the model's effort: the lower the effort, the faster it flies. A side pane shows your last turns, what each one cost, and which projects and models filled the window.
 
 Zero tokens: everything is read from what Claude Code already knows. No network, no model calls.
 
@@ -21,13 +21,13 @@ Zero tokens: everything is read from what Claude Code already knows. No network,
 
 The liquid rises and falls with the value and keeps a gentle wave. Rings turn amber past 50% and red past 75%. The cache ring drains as the cache lifetime runs out and turns amber in its last fifth. The session cost sits at the end of the band, and `Panel` opens the pane.
 
-**The jet**: while the model runs at effort `high` or above, a small fighter jet flies just left of `Panel`. It banks right and left, then rolls through a corkscrew, with wind streaming past. Higher effort means a faster cycle, faster wind and a longer afterburner: orange at `high`, red at `xhigh`, violet with shock diamonds at `max`. It hides on a narrow band, and the terminal shows `✈ max` instead.
+**The jet**: a small fighter jet flies just left of `Panel` and shows the model's effort. It banks right and left, then rolls through a corkscrew, with wind streaming past. Lower effort answers faster, so the jet flies faster: `low` races with a violet afterburner and shock diamonds, then `medium` (red), `high` (orange) and `xhigh` (amber), down to `max`, which cruises slowly with a small blue flame because it thinks longest. It hides on a narrow band, and the terminal shows `✈ low` and so on instead.
 
 **The pane** (`Panel` or `/wavy-usage`)
 
-- The jet, larger, with the effort level (while effort is `high` or above)
+- The jet, larger, with the effort level
 - The four rings, larger
-- **Last 5 turns**: one stacked bar per turn (input, output, cache write, cache read), its total tokens, its cost and how much it moved the context
+- **Last 5 turns**: a table with a total line and column headers. Each turn shows its number and time, a stacked bar of its tokens (hover a segment for its name and size), its token total, its cost and how much the 5-hour window grew during it. The legend says what each color means: cache reads are the cheap re-reading of the conversation, output is the priciest
 - **What filled the window**: the 5-hour or 7-day window broken down by project and by model, ranked by cost
 - **Resets**: when each window resets, with a progress bar
 

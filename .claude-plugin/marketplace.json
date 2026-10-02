@@ -9,7 +9,7 @@
     {
       "name": "wavy-usage",
       "source": "./",
-      "description": "Liquid-filled rings above the Claude Code prompt for the 5-hour and 7-day limit windows, context fill and prompt-cache lifetime, a fighter jet while effort is high or above, and a pane of recent turns, their cost and what filled the window.",
+      "description": "Liquid-filled rings above the Claude Code prompt for the 5-hour and 7-day limit windows, context fill and prompt-cache lifetime, a fighter jet that shows the model's effort, and a pane of recent turns, their cost, their share of the 5-hour window and what filled it.",
       "homepage": "https://github.com/BatuhanCakmakk/wavy-usage",
       "repository": "https://github.com/BatuhanCakmakk/wavy-usage"
     }

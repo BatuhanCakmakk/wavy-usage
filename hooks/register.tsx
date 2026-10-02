@@ -13,6 +13,7 @@ import {
   costText,
   countdown,
   ctxDeltaText,
+  fiveDeltaText,
   dayClock,
   FIVE_HOURS,
   isStaleLog,
@@ -32,6 +33,7 @@ import {
   TTL_1H,
   TTL_5M,
   ttlText,
+  turnsSummary,
   turnTotal,
   upgradeTurn,
   windowElapsed,
@@ -62,6 +64,8 @@ const JET_H = 44
 const JET_SCALE = 1.25
 const JET_PANE_H = 84
 const JET_PANE_SCALE = 2.6
+// The terminal tag takes the flame's color family.
+const JET_TERMINAL_COLOR: Record<JetLevel, string> = { low: 'magenta', medium: 'red', high: 'yellow', xhigh: 'yellow', max: 'cyan' }
 
 const reading = atom({ plugin: 'wavy-usage', key: 'reading' } as const, null as Reading | null)
 const history = atom({ plugin: 'wavy-usage', key: 'history' } as const, [] as Turn[])
@@ -210,9 +214,14 @@ export const register: Register = (on, options) => {
     const pct = fresh.ctxPercent
     const ctxChanged = e.changed.includes('context') && pct !== undefined
     const costChanged = e.changed.includes('cost') && fresh.usd !== undefined
-    if (ctxChanged || costChanged) {
+    const fiveChanged = e.changed.includes('rateLimits') && fresh.fiveHour !== undefined
+    if (ctxChanged || costChanged || fiveChanged) {
       const now = await $.clock.now()
-      const patch = { ...(ctxChanged && { ctxPercent: pct }), ...(costChanged && { usd: fresh.usd }) }
+      const patch = {
+        ...(ctxChanged && { ctxPercent: pct }),
+        ...(costChanged && { usd: fresh.usd }),
+        ...(fresh.fiveHour !== undefined && { fiveHour: fresh.fiveHour }),
+      }
       await update($, history, h => settleTurn(h, patch, now))
       await syncOwnLog($)
     }
@@ -230,13 +239,13 @@ export const register: Register = (on, options) => {
     const usage = e.usage
     const current = await read($, reading)
     const now = await $.clock.now()
-    await update($, history, h => recordTurn(h, usage, current?.ctxPercent ?? 0, current?.usd, now))
+    await update($, history, h => recordTurn(h, usage, current?.ctxPercent ?? 0, current?.usd, now, current?.fiveHour))
     await update($, lastRequestAt, () => now)
     await syncOwnLog($)
     return r
   })
 
-  // Every main-loop request names its effort: the jet appears at high and above, and follows a change on the next request.
+  // Every main-loop request names its effort: the jet follows a change on the next request.
   on('turn.step', async function* ($, e, next) {
     if (!disabled && !e.agentId) {
       const level = jetLevel(e.effort)
@@ -269,7 +278,7 @@ export const register: Register = (on, options) => {
       const width = Math.min(640, Math.max(160, e.props.bodyColumns * 7))
       const recent = recentTurns(turns)
       const scale = Math.max(0, ...recent.map(({ turn }) => turnTotal(turn)))
-      const barWidth = Math.max(60, width - 210)
+      const barWidth = Math.max(60, width - 230)
       const view = await read($, windowView)
       const since = windowStart(view, r, now)
       const entries = [...(await read($, others)), ...(await read($, log))]
@@ -324,11 +333,24 @@ export const register: Register = (on, options) => {
         ))
       }
       const legend = [
-        ['in', t.legendIn],
-        ['out', t.legendOut],
-        ['cacheWrite', t.legendCacheWrite],
-        ['cacheRead', t.legendCacheRead],
+        ['in', t.legendIn, t.hintIn],
+        ['out', t.legendOut, t.hintOut],
+        ['cacheWrite', t.legendCacheWrite, t.hintCacheWrite],
+        ['cacheRead', t.legendCacheRead, t.hintCacheRead],
       ] as const
+      const summary = turnsSummary(recent)
+      // Column widths in cells; the bar column's header spans the bar's pixels (about 7 px a cell).
+      const COL_TURN = 10
+      const COL_TOKENS = 6
+      const COL_COST = 7
+      const COL_FIVE = 7
+      const legendWidth = Math.max(16, Math.floor(width / 7 / 2) - 2)
+      const legendItem = ([k, label, hint]: (typeof legend)[number]) => (
+        <Box key={`legend-${k}`} flexDirection="row" gap={1} width={legendWidth}>
+          <Text color={SEGMENTS[k]}>■</Text>
+          <Text dimColor>{`${label}: ${hint}`}</Text>
+        </Box>
+      )
       const fiveAt = r?.fiveHourResetsAt
       const sevenAt = r?.sevenDayResetsAt
       const level = await read($, effort)
@@ -356,39 +378,75 @@ export const register: Register = (on, options) => {
               {cache !== null && big('cache', t.cache, cache.percent, t.ttl(ttlText(ttl, t)), cache.text, ttlColor(cache.percent))}
             </Box>
           )}
-          <Text bold>{t.lastTurns}</Text>
+          <Box flexDirection="column">
+            <Text bold>{t.lastTurns}</Text>
+            <Text dimColor>{t.lastTurnsHint}</Text>
+          </Box>
           {recent.length === 0 ? (
             <Text dimColor>{t.noTurns}</Text>
           ) : (
             <Box flexDirection="column">
-              {recent.map(({ turn, delta, cost }) => (
+              <Text dimColor>
+                {t.turnsTotal(
+                  tokens(summary.tokens),
+                  summary.cost === null ? '-' : costText(summary.cost),
+                  `${t.win5h} ${summary.five === null ? '-' : fiveDeltaText(summary.five, t.fiveReset)}`,
+                )}
+              </Text>
+              <Box key="turn-head" flexDirection="row" gap={1}>
+                <Box width={COL_TURN}>
+                  <Text dimColor>{t.colTurn}</Text>
+                </Box>
+                <Box width={Math.round(barWidth / 7)}>
+                  <Text dimColor wrap="truncate">{t.colSplit}</Text>
+                </Box>
+                <Box width={COL_TOKENS}>
+                  <Text dimColor>{t.colTokens}</Text>
+                </Box>
+                <Box width={COL_COST}>
+                  <Text dimColor>{t.colCost}</Text>
+                </Box>
+                <Box width={COL_FIVE}>
+                  <Text dimColor>{t.win5h}</Text>
+                </Box>
+              </Box>
+              {recent.map(({ turn, delta, cost, five }) => (
                 <Box key={`turn-${turn.n}`} flexDirection="row" gap={1} alignItems="center">
-                  <Box width={9}>
-                    <Text dimColor>{t.turn(turn.n)}</Text>
+                  <Box width={COL_TURN}>
+                    <Text dimColor>{`#${turn.n} ${clockTime(turn.at)}`}</Text>
                   </Box>
                   <Svg
-                    source={turnBar(turn, scale, barWidth)}
-                    alt={t.barAlt(turn.n, tokens(turn.in), tokens(turn.out), tokens(turn.cacheWrite), tokens(turn.cacheRead))}
+                    source={turnBar(turn, scale, barWidth, [
+                      `${t.legendIn}: ${tokens(turn.in)}`,
+                      `${t.legendOut}: ${tokens(turn.out)}`,
+                      `${t.legendCacheWrite}: ${tokens(turn.cacheWrite)}`,
+                      `${t.legendCacheRead}: ${tokens(turn.cacheRead)}`,
+                    ])}
+                    alt={`${t.barAlt(turn.n, tokens(turn.in), tokens(turn.out), tokens(turn.cacheWrite), tokens(turn.cacheRead))} · ctx ${ctxDeltaText(delta, turn.ctxPercent)}`}
                     width={barWidth}
                     height={10}
+                    isInteractive
                   />
-                  <Box width={6}>
+                  <Box width={COL_TOKENS}>
                     <Text bold>{tokens(turnTotal(turn))}</Text>
                   </Box>
-                  <Box width={7}>
+                  <Box width={COL_COST}>
                     <Text>{costText(cost)}</Text>
                   </Box>
-                  <Text dimColor>{ctxDeltaText(delta, turn.ctxPercent)}</Text>
+                  <Box width={COL_FIVE}>
+                    <Text dimColor>{fiveDeltaText(five, t.fiveReset)}</Text>
+                  </Box>
                 </Box>
               ))}
               <Box flexDirection="row" gap={2}>
-                {legend.map(([k, label]) => (
-                  <Box key={`legend-${k}`} flexDirection="row" gap={1}>
-                    <Text color={SEGMENTS[k]}>■</Text>
-                    <Text dimColor>{label}</Text>
-                  </Box>
-                ))}
+                {legendItem(legend[3])}
+                {legendItem(legend[2])}
               </Box>
+              <Box flexDirection="row" gap={2}>
+                {legendItem(legend[0])}
+                {legendItem(legend[1])}
+              </Box>
+              <Text dimColor>{t.barHint}</Text>
             </Box>
           )}
           <Box flexDirection="row" gap={1} alignItems="center">
@@ -437,7 +495,7 @@ export const register: Register = (on, options) => {
         const level = await read($, effort)
         const parts = [
           ...terminalParts(r, cache, e.props.bodyColumns, t),
-          ...(level === null ? [] : [{ text: `  ✈ ${level}`, color: level === 'max' ? 'magenta' : level === 'xhigh' ? 'red' : 'yellow' }]),
+          ...(level === null ? [] : [{ text: `  ✈ ${level}`, color: JET_TERMINAL_COLOR[level] }]),
         ]
         return (
           <Box flexDirection="column">
