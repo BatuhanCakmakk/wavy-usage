@@ -163,9 +163,9 @@ describe('panel', () => {
       await w.clock.advance(30 * 1000)
     }
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
-    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d\d:\d\d$/ })).map(t => String(t.text).split(' ')[0])
+    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d/ })).map(t => String(t.text).split(' ')[0])
     expect(labels).toEqual(['#6', '#5', '#4', '#3', '#2'])
-    for (const head of ['Tur', 'Token dağılımı', 'Token', 'Maliyet', '5s']) {
+    for (const head of ['Tur', 'Token', 'Maliyet', '5s']) {
       expect(await pane.find({ type: 'Text', text: head })).toBeDefined()
     }
     expect(await pane.findAll({ type: 'Text', text: '47k' })).toHaveLength(5)
@@ -188,7 +188,7 @@ describe('panel', () => {
     await $.turn.complete(turn())
     await $.turn.complete(turn({ agentId: 'a1' }))
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
-    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d\d:\d\d$/ })).map(t => String(t.text).split(' ')[0])
+    const labels = (await pane.findAll({ type: 'Text', text: /^#\d+ \d/ })).map(t => String(t.text).split(' ')[0])
     expect(labels).toEqual(['#1'])
   })
 

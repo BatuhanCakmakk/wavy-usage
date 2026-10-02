@@ -55,9 +55,12 @@ export const countdown = (ms: number, u: Units = STRINGS.tr.units): string => {
   return rest === 0 ? part(h, u.h) : `${part(h, u.h)}${u.partSep}${part(rest, u.m)}`
 }
 
-export const clockTime = (ms: number): string => {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+// The time in the system locale's own format: 16:20 in Turkey, 4:20 PM in the US.
+// 24-hour locales keep the leading zero (09:05).
+export const clockTime = (ms: number, locale?: string): string => {
+  const cycle = new Intl.DateTimeFormat(locale, { hour: 'numeric' }).resolvedOptions().hourCycle
+  const hour = cycle === 'h23' || cycle === 'h24' ? '2-digit' : 'numeric'
+  return new Intl.DateTimeFormat(locale, { hour, minute: '2-digit' }).format(new Date(ms))
 }
 
 // The weekday comes from Intl in that language (Pzt, Mon, lun., 月 ...).

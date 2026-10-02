@@ -340,10 +340,13 @@ export const register: Register = (on, options) => {
       ] as const
       const summary = turnsSummary(recent)
       // Column widths in cells; the bar column's header spans the bar's pixels (about 7 px a cell).
-      const COL_TURN = 10
+      const COL_TURN = 12
       const COL_TOKENS = 6
       const COL_COST = 7
       const COL_FIVE = 7
+      // The bar column's header is drawn at the bar's own pixel width so the columns after it line up.
+      const headerCell = (label: string, w: number) =>
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="14"><text x="0" y="11" font-family="system-ui, sans-serif" font-size="12" fill="#888780">${label.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</text></svg>`
       const legendWidth = Math.max(16, Math.floor(width / 7 / 2) - 2)
       const legendItem = ([k, label, hint]: (typeof legend)[number]) => (
         <Box key={`legend-${k}`} flexDirection="row" gap={1} width={legendWidth}>
@@ -397,9 +400,7 @@ export const register: Register = (on, options) => {
                 <Box width={COL_TURN}>
                   <Text dimColor>{t.colTurn}</Text>
                 </Box>
-                <Box width={Math.round(barWidth / 7)}>
-                  <Text dimColor wrap="truncate">{t.colSplit}</Text>
-                </Box>
+                <Svg source={headerCell(t.colSplit, barWidth)} alt={t.colSplit} width={barWidth} height={14} />
                 <Box width={COL_TOKENS}>
                   <Text dimColor>{t.colTokens}</Text>
                 </Box>
@@ -413,7 +414,7 @@ export const register: Register = (on, options) => {
               {recent.map(({ turn, delta, cost, five }) => (
                 <Box key={`turn-${turn.n}`} flexDirection="row" gap={1} alignItems="center">
                   <Box width={COL_TURN}>
-                    <Text dimColor>{`#${turn.n} ${clockTime(turn.at)}`}</Text>
+                    <Text dimColor wrap="truncate">{`#${turn.n} ${clockTime(turn.at)}`}</Text>
                   </Box>
                   <Svg
                     source={turnBar(turn, scale, barWidth, [
