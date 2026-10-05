@@ -142,11 +142,11 @@ export const liquidRing = (
 // Cache TTL ring: calm while plenty is left, the warning color in its last fifth.
 export const ttlColor = (percent: number): string => (percent > 20 ? COLORS.calm : COLORS.warn)
 
-export const resetBar = (fraction: number, width: number): string => {
-  const height = 8
+// A rounded progress bar; the pane's reset rows also draw a thinner one for the limit used, in its heat color.
+export const resetBar = (fraction: number, width: number, color = CHART, height = 8): string => {
   const filled = clamp(fraction, 0, 1) * width
-  const track = `<rect width="${width}" height="${height}" rx="4" fill="${TRACK}" fill-opacity="0.3"/>`
-  const bar = filled > 0 ? `<rect width="${f(Math.max(height, filled))}" height="${height}" rx="4" fill="${CHART}"/>` : ''
+  const track = `<rect width="${width}" height="${height}" rx="${height / 2}" fill="${TRACK}" fill-opacity="0.3"/>`
+  const bar = filled > 0 ? `<rect width="${f(Math.max(height, filled))}" height="${height}" rx="${height / 2}" fill="${color}"/>` : ''
   return `${open(width, height)}${track}${bar}</svg>`
 }
 

@@ -153,6 +153,15 @@ describe('panel', () => {
     expect(rings.filter(s => s.props.width === 64).every(s => s.props.isInteractive === true)).toBe(true)
   })
 
+  test('the reset rows show the limit used and where it ends up at this pace', async ($, on) => {
+    world(on)
+    await $.session.start(session)
+    await $.session.measure(measure())
+    const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
+    expect((await pane.findAll({ type: 'Svg' })).filter(s => s.props.height === 4)).toHaveLength(1)
+    expect(await pane.find({ type: 'Text', text: 'bu hızla sıfırlanmada %60' })).toBeDefined()
+  })
+
   test('last 5 turns: newest on top, total, cost and ctx change', async ($, on) => {
     const w = world(on)
     await $.session.start(session)
@@ -450,6 +459,25 @@ describe('cache TTL', () => {
     await w.clock.advance(2 * MIN)
     const band = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: bandProps() })
     expect(await band.find({ type: 'Text', text: '3dk' })).toBeDefined()
+  })
+})
+
+describe('live refresh', () => {
+  const five = (pct: number) =>
+    measure({ rateLimits: [{ kind: 'five_hour', percentUsed: pct, resetsAt: new Date(NOW + 2 * HOUR + 10 * MIN).toISOString() }], changed: ['rateLimits'] })
+
+  test('a long prompt redraws newer limits after 2 minutes, not before', async ($, on) => {
+    const w = world(on)
+    await $.session.start(session)
+    await $.session.measure(measure())
+    await $.session.measure(five(41))
+    let n = 0
+    const band = async () => $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: bandProps(), requestId: `b${n++}` })
+    expect(await (await band()).find({ type: 'Text', text: '34%' })).toBeDefined()
+    await w.clock.advance(MIN)
+    expect(await (await band()).find({ type: 'Text', text: '41%' })).toBeUndefined()
+    await w.clock.advance(MIN)
+    expect(await (await band()).find({ type: 'Text', text: '41%' })).toBeDefined()
   })
 })
 

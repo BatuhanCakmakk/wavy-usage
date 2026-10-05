@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
+  addSample,
   bandLayout,
   breakdown,
   cacheState,
@@ -9,6 +10,8 @@ import {
   countdown,
   ctxDeltaText,
   fiveDeltaText,
+  FIVE_HOURS,
+  forecast,
   dayClock,
   heat,
   HISTORY_LIMIT,
@@ -397,5 +400,39 @@ describe('5-hour share per turn', () => {
   test('one decimal, ±0, the reset word when the window went down, nothing when unknown', async () => {
     expect([fiveDeltaText(0.4, 'reset'), fiveDeltaText(1, 'reset'), fiveDeltaText(0, 'reset')]).toEqual(['+0.4%', '+1%', '±0%'])
     expect([fiveDeltaText(-80, 'reset'), fiveDeltaText(null, 'reset')]).toEqual(['reset', ''])
+  })
+})
+
+describe('run-out forecast', () => {
+  const resetsAt = NOW + 2 * HOUR
+
+  test('samples keep moves only, start over on a new window and drop old ones', async () => {
+    let s = addSample([], 10, NOW)
+    s = addSample(s, 10, NOW + MIN)
+    expect(s).toHaveLength(1)
+    s = addSample(s, 12, NOW + 2 * MIN)
+    expect(s).toHaveLength(2)
+    expect(addSample(s, 3, NOW + 3 * MIN)).toEqual([{ at: NOW + 3 * MIN, pct: 3 }])
+    expect(addSample(s, 15, NOW + 2 * HOUR)).toEqual([{ at: NOW + 2 * HOUR, pct: 15 }])
+  })
+
+  test('the recent pace, when the last 30 minutes moved enough', async () => {
+    const recent = [{ at: NOW - 20 * MIN, pct: 40 }]
+    const f = forecast(50, resetsAt, FIVE_HOURS, NOW, recent)
+    expect(f?.fullAt).toBe(NOW + 100 * MIN)
+    expect(Math.round(f?.atReset ?? 0)).toBe(110)
+  })
+
+  test("the window's average when recent samples are too short or flat", async () => {
+    const f = forecast(30, resetsAt, FIVE_HOURS, NOW, [{ at: NOW - 2 * MIN, pct: 20 }])
+    expect(f).toEqual({ atReset: 50 })
+    expect(forecast(30, resetsAt, FIVE_HOURS, NOW, [{ at: NOW - 20 * MIN, pct: 29.5 }])).toEqual({ atReset: 50 })
+  })
+
+  test('nothing to go on: no forecast', async () => {
+    expect(forecast(undefined, resetsAt, FIVE_HOURS, NOW)).toBeNull()
+    expect(forecast(30, undefined, FIVE_HOURS, NOW)).toBeNull()
+    expect(forecast(100, resetsAt, FIVE_HOURS, NOW)).toBeNull()
+    expect(forecast(5, NOW + FIVE_HOURS - 10 * MIN, FIVE_HOURS, NOW)).toBeNull()
   })
 })

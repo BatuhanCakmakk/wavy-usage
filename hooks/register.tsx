@@ -4,8 +4,9 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { LogEntry, Reading, Turn } from '../types'
 import type { Lang, Strings } from './i18n'
 import { resolveLang, STRINGS } from './i18n'
-import type { Group, WindowView } from './model'
+import type { Group, Sample, WindowView } from './model'
 import {
+  addSample,
   bandLayout,
   breakdown,
   cacheState,
@@ -17,6 +18,8 @@ import {
   fiveDeltaText,
   dayClock,
   FIVE_HOURS,
+  forecast,
+  heat,
   isStaleLog,
   isUnknown,
   nudge,
@@ -45,7 +48,7 @@ import {
 } from './model'
 import type { JetLevel } from './jet'
 import { jetLevel, jetStrip } from './jet'
-import { liquidRing, resetBar, SEGMENTS, ttlColor, turnBar } from './svg'
+import { COLORS, liquidRing, resetBar, SEGMENTS, ttlColor, turnBar } from './svg'
 import { terminalParts } from './terminal'
 
 // Limit windows, context fill, cache warmth and cost: rings above the prompt, detail in a side pane.
@@ -59,6 +62,8 @@ const TTL_KEY = 'wavy-usage:ttl'
 const LOG_PREFIX = 'wavy-usage:log:'
 const EFFORT_KEY = 'wavy-usage:effort'
 const TICK_MS = 60 * 1000
+// While a long prompt runs, the band and the pane catch up with new measurements at most this often.
+const LIVE_MS = 2 * 60 * 1000
 // Band rings at 2x: the text keeps the app's size (Text has no size prop), the ring grows.
 const BAND_RING = 44
 const BAND_STROKE = 5
@@ -87,6 +92,8 @@ const windowView = atom({ plugin: 'wavy-usage', key: 'windowView' } as const, '5
 const effort = atom({ plugin: 'wavy-usage', key: 'effort' } as const, null as JetLevel | null)
 // The session's cost when it started (0 when new, the restored total when resumed): the first turn's cost counts from it.
 const costBase = atom({ plugin: 'wavy-usage', key: 'costBase' } as const, undefined as number | undefined)
+// The 5-hour percent over the last hour, for the pane's run-out forecast.
+const samples = atom({ plugin: 'wavy-usage', key: 'samples' } as const, [] as Sample[])
 
 let disabled = false
 let nudgedAt = 0
@@ -94,6 +101,7 @@ let hasLoggedRenderError = false
 let lastTurnEnd = 0
 let lastFace = ''
 let lastMeasureAt = 0
+let lastPublishAt = 0
 let awaitingSettle = false
 let sessionId = '?'
 let project = '?'
@@ -190,6 +198,7 @@ const publish = async ($: EngineInterface): Promise<void> => {
   }
   if (JSON.stringify(await read($, screen)) === JSON.stringify(next)) return
   await update($, screen, () => next)
+  lastPublishAt = await $.clock.now()
 }
 
 // The time-driven figures as drawn now, or null while the band is off.
@@ -216,6 +225,7 @@ export const register: Register = (on, options) => {
     lastTurnEnd = 0
     lastFace = ''
     lastMeasureAt = 0
+    lastPublishAt = 0
     awaitingSettle = false
     hasLoggedRenderError = false
     lastLevel.clear()
@@ -266,6 +276,12 @@ export const register: Register = (on, options) => {
           awaitingSettle = false
           await publish($)
         }
+        // Mid-prompt: newer measurements are drawn once LIVE_MS has passed since the last draw.
+        const now = await $.clock.now()
+        if (!awaitingSettle && now - lastPublishAt >= LIVE_MS) {
+          const shown = (await read($, screen)).reading
+          if (JSON.stringify(shown) !== JSON.stringify(await read($, reading))) await publish($)
+        }
         return clockFace($)
       })()
         .then(face => {
@@ -284,6 +300,8 @@ export const register: Register = (on, options) => {
     const fresh = takeReading(e)
     await update($, reading, () => fresh)
     const at = await $.clock.now()
+    const five = fresh.fiveHour
+    if (five !== undefined) await update($, samples, s => addSample(s, five, at))
     lastMeasureAt = at
     const pct = fresh.ctxPercent
     const ctxChanged = e.changed.includes('context') && pct !== undefined
@@ -386,17 +404,32 @@ export const register: Register = (on, options) => {
         </Box>
       )
       const resetWidth = Math.max(60, width - 40)
-      const resetRow = (label: string, at: number, length: number, clock: string) => (
-        <Box key={`reset-${label}`} flexDirection="column">
-          <Box flexDirection="row" gap={1} alignItems="center">
-            <Box width={6}>
-              <Text bold>{label}</Text>
+      const paceSamples = await read($, samples)
+      // Elapsed time on the blue bar, the limit used on a thin bar under it, and where it ends up at this pace.
+      const resetRow = (label: string, at: number, length: number, clock: string, used: number | undefined, fullClock: (ms: number) => string) => {
+        const pace = forecast(used, at, length, now, length === FIVE_HOURS ? paceSamples : [])
+        return (
+          <Box key={`reset-${label}`} flexDirection="column">
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Box width={6}>
+                <Text bold>{label}</Text>
+              </Box>
+              <Box flexDirection="column">
+                <Svg source={resetBar(windowElapsed(at, now, length), resetWidth)} alt={t.elapsedAlt(label)} width={resetWidth} height={8} />
+                {used !== undefined && (
+                  <Svg source={resetBar(used / 100, resetWidth, COLORS[heat(used)], 4)} alt={t.usedAlt(label)} width={resetWidth} height={4} />
+                )}
+              </Box>
             </Box>
-            <Svg source={resetBar(windowElapsed(at, now, length), resetWidth)} alt={t.elapsedAlt(label)} width={resetWidth} height={8} />
+            <Text dimColor>{t.inTime(countdown(at - now, t.units, COUNTDOWN_STEP), clock)}</Text>
+            {pace?.fullAt !== undefined ? (
+              <Text color={COLORS.warn}>{t.paceFull(fullClock(pace.fullAt), countdown(at - pace.fullAt, t.units, COUNTDOWN_STEP))}</Text>
+            ) : (
+              pace && <Text dimColor>{t.paceAtReset(Math.round(pace.atReset))}</Text>
+            )}
           </Box>
-          <Text dimColor>{t.inTime(countdown(at - now, t.units, COUNTDOWN_STEP), clock)}</Text>
-        </Box>
-      )
+        )
+      }
       const groupRows = (groups: Group[]) => {
         const max = Math.max(0, ...groups.map(g => g.usd))
         return groups.map(g => (
@@ -556,8 +589,8 @@ export const register: Register = (on, options) => {
           {(fiveAt !== undefined || sevenAt !== undefined) && (
             <Box flexDirection="column">
               <Text bold>{t.resets}</Text>
-              {fiveAt !== undefined && resetRow(t.win5h, fiveAt, FIVE_HOURS, t.atClock(clockTime(fiveAt)))}
-              {sevenAt !== undefined && resetRow(t.win7d, sevenAt, SEVEN_DAYS, dayClock(sevenAt, lang))}
+              {fiveAt !== undefined && resetRow(t.win5h, fiveAt, FIVE_HOURS, t.atClock(clockTime(fiveAt)), r?.fiveHour, ms => clockTime(ms))}
+              {sevenAt !== undefined && resetRow(t.win7d, sevenAt, SEVEN_DAYS, dayClock(sevenAt, lang), r?.sevenDay, ms => dayClock(ms, lang))}
             </Box>
           )}
         </Box>

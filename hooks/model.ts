@@ -317,3 +317,43 @@ export const isStaleLog = (entries: unknown, now: number): boolean => {
   const at = typeof last === 'object' && last !== null ? Reflect.get(last, 'at') : undefined
   return typeof at !== 'number' || at < now - LOG_KEEP_MS
 }
+
+// The 5-hour window's percent at a moment, kept for the run-out forecast's recent pace.
+export type Sample = { at: number; pct: number }
+export const RECENT_MS = 30 * 60 * 1000
+const MIN_SPAN_MS = 5 * 60 * 1000
+
+// Adds a reading when the percent moved; a drop (a new window) starts over, and samples past twice RECENT_MS go.
+export const addSample = (samples: readonly Sample[], pct: number, at: number): Sample[] => {
+  const last = samples.at(-1)
+  if (last && last.pct === pct) return [...samples]
+  const kept = last && pct < last.pct ? [] : samples.filter(s => at - s.at <= 2 * RECENT_MS)
+  return [...kept, { at, pct }]
+}
+
+export type Forecast = { atReset: number; fullAt?: number }
+
+// Where the window ends up at this pace. The pace is the last RECENT_MS of samples when they span at least 5 minutes
+// and moved at least 1 point, otherwise the window's average so far (not before 5% of it has passed). Null when there
+// is not enough to go on, or the window is already full.
+export const forecast = (
+  pct: number | undefined,
+  resetsAt: number | undefined,
+  length: number,
+  now: number,
+  samples: readonly Sample[] = [],
+): Forecast | null => {
+  if (pct === undefined || resetsAt === undefined || resetsAt <= now || pct >= 100) return null
+  const start = resetsAt - length
+  const first = samples.find(s => s.at >= start && now - s.at <= RECENT_MS)
+  const elapsed = now - start
+  const rate =
+    first && now - first.at >= MIN_SPAN_MS && pct - first.pct >= 1
+      ? (pct - first.pct) / (now - first.at)
+      : elapsed >= length * 0.05 && pct >= 1
+        ? pct / elapsed
+        : null
+  if (rate === null) return null
+  const atReset = pct + rate * (resetsAt - now)
+  return atReset > 100 ? { atReset, fullAt: now + (100 - pct) / rate } : { atReset }
+}

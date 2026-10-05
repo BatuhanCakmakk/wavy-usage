@@ -63,6 +63,9 @@ export type Strings = {
   argUnknown: (arg: string) => string
   barAlt: (n: number, inp: string, out: string, write: string, readTokens: string) => string
   elapsedAlt: (label: string) => string
+  usedAlt: (label: string) => string
+  paceAtReset: (pct: number) => string
+  paceFull: (clock: string, early: string) => string
   noCost: string
   effort: (level: string) => string
 }
@@ -125,6 +128,9 @@ const en: Strings = {
   argUnknown: arg => `wavy-usage: "${arg}" not recognized. Usage: /wavy-usage ${USAGE}`,
   barAlt: (n, inp, out, write, readTokens) => `Turn ${n}: ${inp} in, ${out} out, ${write} cache write, ${readTokens} cache read`,
   elapsedAlt: label => `Elapsed part of the ${label} window`,
+  usedAlt: label => `Used part of the ${label} limit`,
+  paceAtReset: pct => `at this pace: ${pct}% at reset`,
+  paceFull: (clock, early) => `at this pace: full by ${clock}, ${early} before reset`,
   noCost: 'no cost',
   effort: l => `Effort: ${l}`,
 }
@@ -184,6 +190,9 @@ const tr: Strings = {
   argUnknown: arg => `wavy-usage: "${arg}" tanınmadı. Kullanım: /wavy-usage ${USAGE}`,
   barAlt: (n, inp, out, write, readTokens) => `Tur ${n}: ${inp} in, ${out} out, ${write} cache yazma, ${readTokens} cache okuma`,
   elapsedAlt: label => `${label} penceresinin geçen kısmı`,
+  usedAlt: label => `${label} limitinin kullanılan kısmı`,
+  paceAtReset: pct => `bu hızla sıfırlanmada %${pct}`,
+  paceFull: (clock, early) => `bu hızla ${clock} civarı dolar, sıfırlanmadan ${early} önce`,
   noCost: 'maliyet yok',
   effort: l => `Efor: ${l}`,
 }
@@ -245,6 +254,9 @@ const fr: Strings = {
   barAlt: (n, inp, out, write, readTokens) =>
     `Tour ${n} : ${inp} en entrée, ${out} en sortie, ${write} écrits en cache, ${readTokens} lus en cache`,
   elapsedAlt: label => `Partie écoulée de la fenêtre ${label}`,
+  usedAlt: label => `Partie utilisée de la limite ${label}`,
+  paceAtReset: pct => `à ce rythme : ${pct} % à la réinitialisation`,
+  paceFull: (clock, early) => `à ce rythme : pleine vers ${clock}, ${early} avant la réinitialisation`,
   noCost: 'aucun coût',
   effort: l => `Effort : ${l}`,
 }
@@ -306,6 +318,9 @@ const de: Strings = {
   barAlt: (n, inp, out, write, readTokens) =>
     `Runde ${n}: ${inp} Eingabe, ${out} Ausgabe, ${write} Cache-Schreiben, ${readTokens} Cache-Lesen`,
   elapsedAlt: label => `Verstrichener Teil des ${label}-Fensters`,
+  usedAlt: label => `Genutzter Teil des ${label}-Limits`,
+  paceAtReset: pct => `bei diesem Tempo: ${pct} % beim Zurücksetzen`,
+  paceFull: (clock, early) => `bei diesem Tempo: voll gegen ${clock}, ${early} vor dem Zurücksetzen`,
   noCost: 'keine Kosten',
   effort: l => `Aufwand: ${l}`,
 }
@@ -365,6 +380,9 @@ const ja: Strings = {
   argUnknown: arg => `wavy-usage: 「${arg}」は認識できません。使い方: /wavy-usage ${USAGE}`,
   barAlt: (n, inp, out, write, readTokens) => `ターン${n}: 入力 ${inp}、出力 ${out}、キャッシュ書込 ${write}、キャッシュ読込 ${readTokens}`,
   elapsedAlt: label => `${label}ウィンドウの経過分`,
+  usedAlt: label => `${label}上限の使用分`,
+  paceAtReset: pct => `このペースだとリセット時 ${pct}%`,
+  paceFull: (clock, early) => `このペースだと ${clock} ごろ上限、リセットの ${early} 前`,
   noCost: 'コストなし',
   effort: l => `エフォート: ${l}`,
 }
@@ -424,6 +442,9 @@ const ko: Strings = {
   argUnknown: arg => `wavy-usage: "${arg}"을(를) 인식할 수 없습니다. 사용법: /wavy-usage ${USAGE}`,
   barAlt: (n, inp, out, write, readTokens) => `턴 ${n}: 입력 ${inp}, 출력 ${out}, 캐시 쓰기 ${write}, 캐시 읽기 ${readTokens}`,
   elapsedAlt: label => `${label} 윈도우의 경과 부분`,
+  usedAlt: label => `${label} 한도의 사용 부분`,
+  paceAtReset: pct => `이 속도면 초기화 시점에 ${pct}%`,
+  paceFull: (clock, early) => `이 속도면 ${clock}쯤 한도 도달, 초기화 ${early} 전`,
   noCost: '비용 없음',
   effort: l => `노력 수준: ${l}`,
 }
@@ -485,6 +506,9 @@ const ptBR: Strings = {
   barAlt: (n, inp, out, write, readTokens) =>
     `Turno ${n}: ${inp} de entrada, ${out} de saída, ${write} escritos em cache, ${readTokens} lidos do cache`,
   elapsedAlt: label => `Parte decorrida da janela de ${label}`,
+  usedAlt: label => `Parte usada do limite de ${label}`,
+  paceAtReset: pct => `neste ritmo: ${pct}% na redefinição`,
+  paceFull: (clock, early) => `neste ritmo: cheio por volta de ${clock}, ${early} antes da redefinição`,
   noCost: 'sem custo',
   effort: l => `Esforço: ${l}`,
 }
@@ -546,6 +570,9 @@ const es: Strings = {
   barAlt: (n, inp, out, write, readTokens) =>
     `Turno ${n}: ${inp} de entrada, ${out} de salida, ${write} escritos en caché, ${readTokens} leídos de caché`,
   elapsedAlt: label => `Parte transcurrida de la ventana de ${label}`,
+  usedAlt: label => `Parte usada del límite de ${label}`,
+  paceAtReset: pct => `a este ritmo: ${pct}% al reiniciar`,
+  paceFull: (clock, early) => `a este ritmo: lleno hacia ${clock}, ${early} antes del reinicio`,
   noCost: 'sin costo',
   effort: l => `Esfuerzo: ${l}`,
 }
