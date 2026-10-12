@@ -50,6 +50,8 @@ declare module 'claude-code' {
       windowView: '5h' | '7d'
       screen: { reading: Reading | null; turns: Turn[]; lastRequestAt: number | null; log: LogEntry[] }
       effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+      costBase: number | undefined
+      samples: { at: number; pct: number }[]
     }
   }
 }
