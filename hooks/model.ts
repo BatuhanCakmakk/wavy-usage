@@ -14,8 +14,13 @@ export type Measure = Pick<SessionMeasureInput, 'context' | 'rateLimits' | 'cost
 
 export const heat = (percent: number): Heat => (percent >= 75 ? 'hot' : percent >= 50 ? 'warn' : 'calm')
 
-export const takeReading = (m: Measure): Reading => {
+// compactWindow: the window Claude Code compacts at (a model's autoCompactWindow setting, for one), when smaller than the
+// model's own. The fill is measured against it, as /context measures it.
+export const takeReading = (m: Measure, compactWindow?: number): Reading => {
   const limit = (kind: string) => m.rateLimits.find(l => l.kind === kind)
+  const smaller = compactWindow !== undefined && compactWindow > 0 && compactWindow < m.context.window
+  const window = smaller ? compactWindow : m.context.window
+  const used = m.context.tokens
   const resetsAt = (kind: string) => {
     const at = Date.parse(limit(kind)?.resetsAt ?? '')
     return Number.isFinite(at) ? at : undefined
@@ -25,9 +30,9 @@ export const takeReading = (m: Measure): Reading => {
     fiveHourResetsAt: resetsAt('five_hour'),
     sevenDay: limit('seven_day')?.percentUsed,
     sevenDayResetsAt: resetsAt('seven_day'),
-    ctxPercent: m.context.percent,
-    ctxTokens: m.context.tokens,
-    ctxWindow: m.context.window,
+    ctxPercent: smaller && used !== undefined ? Math.round((used * 100) / window) : m.context.percent,
+    ctxTokens: used,
+    ctxWindow: window,
     usd: m.cost?.usd,
   }
 }

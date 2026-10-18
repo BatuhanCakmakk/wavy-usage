@@ -1,5 +1,5 @@
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
-import type { CommandRunInput, On, RenderPropsOf, SessionMeasureInput, SessionStartInput, TurnCompleteInput } from 'claude-code'
+import type { CommandRunInput, On, RenderPropsOf, SessionContextBreakdown, SessionMeasureInput, SessionStartInput, TurnCompleteInput } from 'claude-code'
 
 tier('user')
 
@@ -51,7 +51,7 @@ const paneProps = (bodyColumns = 60): RenderPropsOf['Pane'] => ({
 
 const ENGINE_BAND = { type: 'Text', children: [''] }
 
-function world(on: On, opts: { env?: Record<string, string>; store?: Record<string, unknown>; claudeLanguage?: string } = {}) {
+function world(on: On, opts: { env?: Record<string, string>; store?: Record<string, unknown>; claudeLanguage?: string; compactWindow?: number } = {}) {
   const toasts: string[] = []
   const opened: string[] = []
   const closed: string[] = []
@@ -80,7 +80,12 @@ function world(on: On, opts: { env?: Record<string, string>; store?: Record<stri
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   // With language auto, Claude Code's language setting is read; fixed here so tests do not depend on the machine's locale.
   on('config.list', () => ({ value: [{ key: 'language', value: opts.claudeLanguage ?? 'turkish' }] }))
-  on('session.usage', () => ({ value: { startedAt: NOW, ...measure(), cost: { usd: 0 } } }))
+  // /context's breakdown, when a compaction window is set: only its window matters to the mod.
+  const breakdown = opts.compactWindow === undefined ? undefined : ({ rawMaxTokens: opts.compactWindow } as SessionContextBreakdown)
+  on('session.usage', ($, e) => {
+    const m = measure()
+    return { value: { startedAt: NOW, ...m, context: { ...m.context, ...(e.breakdown && breakdown && { breakdown }) }, cost: { usd: 0 } } }
+  })
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.invalidate', () => {
@@ -209,6 +214,15 @@ describe('panel', () => {
     await $.session.measure(measure())
     const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
     expect((await pane.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['win-5h', 'win-7d'])
+  })
+
+  test('a smaller compaction window is the one the fill is measured against', async ($, on) => {
+    world(on, { compactWindow: 500_000 })
+    await $.session.start(session)
+    await $.session.measure(measure({ context: { window: 1_000_000, tokens: 375_000, percent: 38 } }))
+    const pane = await $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'Pane', props: paneProps(), requestId: 'wavy-usage' })
+    expect(await pane.find({ type: 'Text', text: '375k / 500k' })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: '75%' })).toBeDefined()
   })
 
   test('a 1M window writes tokens in millions', async ($, on) => {

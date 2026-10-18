@@ -103,6 +103,9 @@ let lastFace = ''
 let lastMeasureAt = 0
 let lastPublishAt = 0
 let awaitingSettle = false
+// The window Claude Code compacts at, from /context's breakdown; read again whenever the fill moves (a model switch or
+// a settings change can move it too).
+let compactWindow: number | undefined
 let sessionId = '?'
 let project = '?'
 let lang: Lang = 'en'
@@ -228,6 +231,7 @@ export const register: Register = (on, options) => {
     lastPublishAt = 0
     awaitingSettle = false
     hasLoggedRenderError = false
+    compactWindow = undefined
     lastLevel.clear()
     if (await readDisabled($)) return r
     // Language: userConfig > Claude Code's language setting > system locale > English.
@@ -297,7 +301,11 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const r = await next(e)
     if (disabled) return r
-    const fresh = takeReading(e)
+    if (e.changed.includes('context')) {
+      const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
+      compactWindow = usage?.context.breakdown?.rawMaxTokens
+    }
+    const fresh = takeReading(e, compactWindow)
     await update($, reading, () => fresh)
     const at = await $.clock.now()
     const five = fresh.fiveHour
@@ -710,9 +718,10 @@ export const register: Register = (on, options) => {
     if (arg === 'on') {
       await update($, isEnabled, () => true)
       await $.store.set(ENABLED_KEY, true).catch(() => undefined)
-      const u = await $.session.usage().catch(() => undefined)
+      const u = await $.session.usage({ breakdown: 'summary' }).catch(() => undefined)
       if (u) {
-        await update($, reading, () => takeReading(u))
+        compactWindow = u.context.breakdown?.rawMaxTokens
+        await update($, reading, () => takeReading(u, compactWindow))
         await publish($)
       }
       return { text: t.turnedOn }

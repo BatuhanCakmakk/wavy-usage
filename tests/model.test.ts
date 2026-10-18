@@ -77,6 +77,13 @@ describe('takeReading', () => {
     })
   })
 
+  test('a smaller compaction window replaces the model window; a larger one is ignored', async () => {
+    const m = { context: { window: 1_000_000, tokens: 375_000, percent: 38 }, rateLimits: [] }
+    expect(takeReading(m, 500_000)).toMatchObject({ ctxPercent: 75, ctxTokens: 375_000, ctxWindow: 500_000 })
+    expect(takeReading(m, 2_000_000)).toMatchObject({ ctxPercent: 38, ctxWindow: 1_000_000 })
+    expect(takeReading({ context: { window: 1_000_000 }, rateLimits: [] }, 500_000).ctxPercent).toBeUndefined()
+  })
+
   test('off a subscription: no windows, a bad date is ignored', async () => {
     const r = takeReading({
       context: { window: 200_000 },
