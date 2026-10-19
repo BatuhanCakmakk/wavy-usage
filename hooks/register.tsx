@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { LogEntry, Reading, Turn } from '../types'
 import type { Lang, Strings } from './i18n'
 import { resolveLang, STRINGS } from './i18n'
-import type { Group, Sample, WindowView } from './model'
+import type { Group, Limits, Sample, WindowView } from './model'
 import {
   addSample,
   bandLayout,
@@ -24,6 +24,7 @@ import {
   isUnknown,
   nudge,
   nudgeText,
+  parseLimits,
   parseTtl,
   percentText,
   projectName,
@@ -45,6 +46,7 @@ import {
   windowElapsed,
   windowStart,
   windowTotals,
+  withLimits,
 } from './model'
 import type { JetLevel } from './jet'
 import { jetLevel, jetStrip } from './jet'
@@ -52,8 +54,8 @@ import { COLORS, liquidRing, resetBar, SEGMENTS, ttlColor, turnBar } from './svg
 import { terminalParts } from './terminal'
 
 // Limit windows, context fill, cache warmth and cost: rings above the prompt, detail in a side pane.
-// The figures arrive on session.measure and turn.complete (what the last API response already reported): no extra
-// requests, no tokens. Svg rings and a pane on desktop, a one-line text band in the terminal. Strings live in i18n.ts.
+// The figures arrive on session.measure and turn.complete (what the last API response already reported), and the
+// limit windows also from a poll of the usage endpoint /usage reads: no model calls, no tokens. Svg rings and a pane on desktop, a one-line text band in the terminal. Strings live in i18n.ts.
 
 const MOD = 'wavy-usage'
 const PANE = 'wavy-usage'
@@ -64,6 +66,13 @@ const EFFORT_KEY = 'wavy-usage:effort'
 const TICK_MS = 60 * 1000
 // While a long prompt runs, the band and the pane catch up with new measurements at most this often.
 const LIVE_MS = 2 * 60 * 1000
+// The 5-hour and 7-day windows are polled this often, idle or not, from the endpoint /usage reads. The open sessions
+// share one poll through $.store: a session whose neighbour polled within the interval takes that reply instead.
+const POLL_MS = 45 * 1000
+const LIMITS_KEY = 'wavy-usage:limits'
+const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+// After a refusal (429, an error, no first-party sign-in) the poll waits this long, or as long as retry-after says.
+const BACKOFF_MS = 5 * 60 * 1000
 // Band rings at 2x: the text keeps the app's size (Text has no size prop), the ring grows.
 const BAND_RING = 44
 const BAND_STROKE = 5
@@ -106,6 +115,7 @@ let awaitingSettle = false
 // The window Claude Code compacts at, from /context's breakdown; read again whenever the fill moves (a model switch or
 // a settings change can move it too).
 let compactWindow: number | undefined
+let pollPausedUntil = 0
 let sessionId = '?'
 let project = '?'
 let lang: Lang = 'en'
@@ -204,6 +214,50 @@ const publish = async ($: EngineInterface): Promise<void> => {
   lastPublishAt = await $.clock.now()
 }
 
+// The windows as of now: a neighbour's poll younger than the interval, else a request of this session's own.
+const fetchLimits = async ($: EngineInterface, now: number): Promise<Limits | undefined> => {
+  const shared = (await $.store.get(LIMITS_KEY).catch(() => undefined)) as { at: number; limits: Limits } | undefined
+  if (shared && now - shared.at < POLL_MS - 5000) return shared.limits
+  if (now < pollPausedUntil) return undefined
+  const pause = (ms = BACKOFF_MS) => {
+    pollPausedUntil = now + ms
+    return undefined
+  }
+  const auth = await $.session.authorize().catch(() => null)
+  if (!auth) return pause()
+  const res = await $.http
+    .fetch(USAGE_URL, { auth: auth.handle, headers: { 'anthropic-beta': 'oauth-2025-04-20' } })
+    .catch(() => undefined)
+  if (!res) return pause()
+  if (!res.ok) {
+    const after = Number(res.headers['retry-after'])
+    return pause(Number.isFinite(after) && after > 0 ? after * 1000 : BACKOFF_MS)
+  }
+  const limits = parseLimits(res.text)
+  if (!limits) return pause()
+  await $.store.set(LIMITS_KEY, { at: now, limits }).catch(() => undefined)
+  return limits
+}
+
+// A poll moves the band at once, whether a prompt runs or not.
+const pollLimits = async ($: EngineInterface): Promise<void> => {
+  if (disabled || !(await read($, isEnabled))) return
+  const now = await $.clock.now()
+  const limits = await fetchLimits($, now)
+  if (!limits) return
+  let current = await read($, reading)
+  if (current === null) {
+    const u = await $.session.usage().catch(() => undefined)
+    if (!u) return
+    current = takeReading(u, compactWindow)
+  }
+  const next = withLimits(current, limits)
+  await update($, reading, () => next)
+  const five = limits.fiveHour
+  if (five !== undefined) await update($, samples, s => addSample(s, five, now))
+  if (!awaitingSettle) await publish($)
+}
+
 // The time-driven figures as drawn now, or null while the band is off.
 const clockFace = async ($: EngineInterface): Promise<string | null> => {
   if (!(await read($, isEnabled))) return null
@@ -232,6 +286,7 @@ export const register: Register = (on, options) => {
     awaitingSettle = false
     hasLoggedRenderError = false
     compactWindow = undefined
+    pollPausedUntil = 0
     lastLevel.clear()
     if (await readDisabled($)) return r
     // Language: userConfig > Claude Code's language setting > system locale > English.
@@ -273,6 +328,10 @@ export const register: Register = (on, options) => {
     // Once a minute while on: the cache countdown and the pane's reset counters.
     // Once a minute, redraw only if a time-driven figure on screen would read differently: the cache ring's step and
     // countdown, and while the pane is open its reset countdowns. An unchanged screen is left alone.
+    void pollLimits($).catch(() => undefined)
+    $.clock.every(POLL_MS, () => {
+      void pollLimits($).catch(() => undefined)
+    })
     $.clock.every(TICK_MS, () => {
       void (async () => {
         // A finished prompt whose settling measurement never came is published on the next tick.
@@ -325,8 +384,10 @@ export const register: Register = (on, options) => {
       await update($, history, h => settleTurn(h, patch, now))
       await syncOwnLog($)
     }
-    // The first reading of a session shows at once; after that only the measurement settling a finished prompt.
-    if ((await read($, screen)).reading === null || (awaitingSettle && at - lastTurnEnd <= SETTLE_MS)) {
+    // The first reading of a session shows at once (a poll may have drawn the limits alone before it); after that only
+    // the measurement settling a finished prompt.
+    const shown = (await read($, screen)).reading
+    if (shown === null || (shown.ctxPercent === undefined && fresh.ctxPercent !== undefined) || (awaitingSettle && at - lastTurnEnd <= SETTLE_MS)) {
       awaitingSettle = false
       await publish($)
     }

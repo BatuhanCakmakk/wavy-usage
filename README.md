@@ -2,7 +2,7 @@
 
 Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit windows, how full the context is, and how long the prompt cache stays warm. A small fighter jet shows the model's effort: the lower the effort, the faster it flies. A side pane shows your last turns, what each one cost, and which projects and models filled the window.
 
-Zero tokens: everything is read from what Claude Code already knows. No network, no model calls.
+Zero tokens: no model calls. The one request it makes is the usage check `/usage` makes, every 45 seconds, so the limit rings stay current while you are idle too.
 
 ![The band above the prompt](docs/band.png)
 
@@ -25,7 +25,7 @@ Zero tokens: everything is read from what Claude Code already knows. No network,
 | `ctx` | Context window fill, with the token count |
 | `cache` | Time left before the prompt cache goes cold |
 
-The liquid rises and falls with the value and keeps a gentle wave. Rings turn amber past 50% and red past 75%. The cache ring drains as the cache lifetime runs out, in 5-minute steps for the 1-hour lifetime, and turns amber in its last fifth. The rings hold still while Claude works and move when the prompt finishes, and the band redraws only when something on it changes. The session cost sits at the end of the band, and `Panel` opens the pane.
+The liquid rises and falls with the value and keeps a gentle wave. Rings turn amber past 50% and red past 75%. The cache ring drains as the cache lifetime runs out, in 5-minute steps for the 1-hour lifetime, and turns amber in its last fifth. The limit rings refresh every 45 seconds; the others hold still while Claude works and move when the prompt finishes, and the band redraws only when something on it changes. The session cost sits at the end of the band, and `Panel` opens the pane.
 
 **The jet**: a small fighter jet flies just left of `Panel` and shows the model's effort. It banks right and left, then rolls through a corkscrew, with wind streaming past. Lower effort answers faster, so the jet flies faster: `low` races with a violet afterburner and shock diamonds, then `medium` (red), `high` (orange) and `xhigh` (amber), down to `max`, which cruises slowly with a small blue flame because it thinks longest. It hides on a narrow band, and the terminal shows `✈ low` and so on instead.
 
@@ -98,15 +98,16 @@ Translations other than English and Turkish have not yet been reviewed by native
 
 ## How it works
 
-- **Limit windows, context and cost** come from Claude Code's own `session.measure` event: the figures the last API response already reported. Nothing extra is requested.
+- **Context and cost** come from Claude Code's own `session.measure` event: the figures the last API response already reported.
+- **Limit windows** come from the same event, and every 45 seconds from Anthropic's usage endpoint (`api.anthropic.com/api/oauth/usage`, the one `/usage` reads), with the session's own sign-in. Claude Code holds the credential; the plugin never sees it. Open sessions share one check through the plugin store, the check pauses for 5 minutes (or as long as the server asks) after a refusal, and it is skipped when you are not signed in to Claude (an API key or a third-party provider).
 - **Turn tokens** come from `turn.complete`. A turn's counts are the sum of all its requests, so cache reads grow with context size times the number of steps.
 - **Turn cost** is the change in Claude Code's own session cost between turns, so it follows the real pricing, cache lifetimes and subagents.
 - **Cache countdown** starts when a main-conversation turn ends. Subagent turns do not refresh it. It is an upper bound: the service can drop a cache entry early.
 
 ## Privacy and footprint
 
-- No network access, no model calls, no files read or written outside the plugin store.
-- The plugin store keeps: whether the band is on, the cache lifetime setting, the last effort level seen, and for each session a list of turns (time, project folder name, model, token total, cost). A session's list is deleted once its last turn is more than 8 days old.
+- No model calls and no files read or written outside the plugin store. The only network request is the usage check above, to api.anthropic.com. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` turns it off.
+- The plugin store keeps: whether the band is on, the cache lifetime setting, the last effort level seen, the last usage check (time and percentages), and for each session a list of turns (time, project folder name, model, token total, cost). A session's list is deleted once its last turn is more than 8 days old.
 - Everything stays on your computer.
 
 Run `claude plugin validate` on the folder to see every event it hooks and every call it makes.

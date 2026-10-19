@@ -51,7 +51,7 @@ const paneProps = (bodyColumns = 60): RenderPropsOf['Pane'] => ({
 
 const ENGINE_BAND = { type: 'Text', children: [''] }
 
-function world(on: On, opts: { env?: Record<string, string>; store?: Record<string, unknown>; claudeLanguage?: string; compactWindow?: number } = {}) {
+function world(on: On, opts: { env?: Record<string, string>; store?: Record<string, unknown>; claudeLanguage?: string; compactWindow?: number; usage?: () => { status: number; text: string; headers?: Record<string, string> } } = {}) {
   const toasts: string[] = []
   const opened: string[] = []
   const closed: string[] = []
@@ -86,6 +86,15 @@ function world(on: On, opts: { env?: Record<string, string>; store?: Record<stri
     const m = measure()
     return { value: { startedAt: NOW, ...m, context: { ...m.context, ...(e.breakdown && breakdown && { breakdown }) }, cost: { usd: 0 } } }
   })
+  // The usage endpoint: signed in only when the test answers it.
+  const fetched: { url: string; auth?: string }[] = []
+  const usage = opts.usage
+  on('session.authorize', () => ({ value: usage ? { handle: 'h-1', kind: 'bearer' as const } : null }))
+  on('http.fetch', ($, e) => {
+    fetched.push({ url: e.url, auth: e.init?.auth })
+    const r = usage?.() ?? { status: 404, text: '' }
+    return { value: { status: r.status, ok: r.status >= 200 && r.status < 300, headers: r.headers ?? {}, text: r.text } }
+  })
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.invalidate', () => {
@@ -107,7 +116,7 @@ function world(on: On, opts: { env?: Record<string, string>; store?: Record<stri
   })
   on('ui.render', { component: 'AbovePrompt' }, () => ENGINE_BAND)
   on('ui.render', { component: 'Pane' }, () => ({ type: 'Text', children: ['engine pane'] }))
-  return { clock, toasts, opened, closed, stored, deleted, invalidations: () => invalidations }
+  return { clock, toasts, opened, closed, stored, deleted, fetched, invalidations: () => invalidations }
 }
 
 describe('toast', () => {
@@ -492,6 +501,57 @@ describe('live refresh', () => {
     expect(await (await band()).find({ type: 'Text', text: '41%' })).toBeUndefined()
     await w.clock.advance(MIN)
     expect(await (await band()).find({ type: 'Text', text: '41%' })).toBeDefined()
+  })
+})
+
+describe('limit polling', () => {
+  const body = (five: number, seven = 20) =>
+    JSON.stringify({
+      five_hour: { utilization: five, resets_at: new Date(NOW + 3 * HOUR).toISOString() },
+      seven_day: { utilization: seven, resets_at: new Date(NOW + 4 * 24 * HOUR).toISOString() },
+    })
+  let n = 0
+  const band = async ($: Parameters<Parameters<typeof test>[1]>[0]) =>
+    $.ui.mount({ plugin: PLUGIN, surface: 'desktop', component: 'AbovePrompt', props: bandProps(), requestId: `p${n++}` })
+
+  test('every 45 seconds, with no prompt running', async ($, on) => {
+    let five = 52
+    const w = world(on, { usage: () => ({ status: 200, text: body(five) }) })
+    await $.session.start(session)
+    // The first poll runs beside the start, not inside it.
+    await w.clock.advance(1000)
+    expect(w.fetched[0]).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'h-1' })
+    expect(await (await band($)).find({ type: 'Text', text: '52%' })).toBeDefined()
+    five = 58
+    await w.clock.advance(44 * 1000)
+    expect(await (await band($)).find({ type: 'Text', text: '58%' })).toBeDefined()
+    expect(w.fetched.length).toBe(2)
+  })
+
+  test("a neighbour's fresh poll is taken instead of a request", async ($, on) => {
+    const w = world(on, {
+      usage: () => ({ status: 200, text: body(10) }),
+      store: { 'wavy-usage:limits': { at: NOW - 10 * 1000, limits: { fiveHour: 71, sevenDay: 30 } } },
+    })
+    await $.session.start(session)
+    expect(w.fetched.length).toBe(0)
+    expect(await (await band($)).find({ type: 'Text', text: '71%' })).toBeDefined()
+  })
+
+  test('a 429 waits as long as retry-after says', async ($, on) => {
+    const w = world(on, { usage: () => ({ status: 429, text: '', headers: { 'retry-after': '120' } }) })
+    await $.session.start(session)
+    await w.clock.advance(90 * 1000)
+    expect(w.fetched.length).toBe(1)
+    await w.clock.advance(45 * 1000)
+    expect(w.fetched.length).toBe(2)
+  })
+
+  test('no request without a first-party sign-in', async ($, on) => {
+    const w = world(on)
+    await $.session.start(session)
+    await w.clock.advance(3 * MIN)
+    expect(w.fetched.length).toBe(0)
   })
 })
 

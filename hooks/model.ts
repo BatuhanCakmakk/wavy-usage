@@ -37,6 +37,35 @@ export const takeReading = (m: Measure, compactWindow?: number): Reading => {
   }
 }
 
+// The 5-hour and 7-day windows from the usage endpoint /usage reads ({ five_hour: { utilization, resets_at }, ... }),
+// or undefined when the reply carries neither.
+export type Limits = Pick<Reading, 'fiveHour' | 'fiveHourResetsAt' | 'sevenDay' | 'sevenDayResetsAt'>
+export const parseLimits = (text: string): Limits | undefined => {
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  const window = (key: string): { pct?: number; at?: number } => {
+    const w = (body as Record<string, { utilization?: unknown; resets_at?: unknown } | null> | null)?.[key]
+    const pct = typeof w?.utilization === 'number' ? w.utilization : undefined
+    const at = typeof w?.resets_at === 'string' ? Date.parse(w.resets_at) : NaN
+    return { pct, at: Number.isFinite(at) ? at : undefined }
+  }
+  const five = window('five_hour')
+  const seven = window('seven_day')
+  if (five.pct === undefined && seven.pct === undefined) return undefined
+  return { fiveHour: five.pct, fiveHourResetsAt: five.at, sevenDay: seven.pct, sevenDayResetsAt: seven.at }
+}
+
+// A reading with the polled windows in place of the last response's; a window the poll lacks keeps its old figure.
+export const withLimits = (r: Reading, l: Limits): Reading => ({
+  ...r,
+  ...(l.fiveHour !== undefined && { fiveHour: l.fiveHour, fiveHourResetsAt: l.fiveHourResetsAt ?? r.fiveHourResetsAt }),
+  ...(l.sevenDay !== undefined && { sevenDay: l.sevenDay, sevenDayResetsAt: l.sevenDayResetsAt ?? r.sevenDayResetsAt }),
+})
+
 export const tokens = (n: number): string => {
   if (n >= 1_000_000) return `${Number((n / 1_000_000).toFixed(1))}M`
   return n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`

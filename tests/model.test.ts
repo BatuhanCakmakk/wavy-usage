@@ -26,7 +26,9 @@ import {
   recordTurn,
   settleTurn,
   syncLog,
+  parseLimits,
   takeReading,
+  withLimits,
   tokens,
   TTL_1H,
   TTL_5M,
@@ -94,6 +96,28 @@ describe('takeReading', () => {
     expect(r.sevenDay).toBeUndefined()
     expect(r.ctxPercent).toBeUndefined()
     expect(r.usd).toBeUndefined()
+  })
+})
+
+describe('parseLimits', () => {
+  test("the usage endpoint's 5-hour and 7-day windows", async () => {
+    const at = new Date(NOW + 2 * HOUR).toISOString()
+    expect(parseLimits(JSON.stringify({ five_hour: { utilization: 23.5, resets_at: at }, seven_day: { utilization: 41, resets_at: null } }))).toEqual({
+      fiveHour: 23.5,
+      fiveHourResetsAt: NOW + 2 * HOUR,
+      sevenDay: 41,
+      sevenDayResetsAt: undefined,
+    })
+  })
+
+  test('nothing from a reply without windows or not JSON', async () => {
+    expect(parseLimits('{"five_hour":null}')).toBeUndefined()
+    expect(parseLimits('<html>')).toBeUndefined()
+  })
+
+  test('a polled window replaces the old one, a missing one keeps it', async () => {
+    const r = { fiveHour: 10, fiveHourResetsAt: 1, sevenDay: 5, sevenDayResetsAt: 2, ctxWindow: 200_000 }
+    expect(withLimits(r, { fiveHour: 12, fiveHourResetsAt: 3 })).toEqual({ ...r, fiveHour: 12, fiveHourResetsAt: 3 })
   })
 })
 
