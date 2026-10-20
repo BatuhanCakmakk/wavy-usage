@@ -17,6 +17,7 @@ import {
   HISTORY_LIMIT,
   isStaleLog,
   modelName,
+  isNudgeWindow,
   nudge,
   nudgeText,
   parseTtl,
@@ -221,23 +222,38 @@ describe('settleTurn', () => {
 })
 
 describe('nudge', () => {
-  test('past 55, once per new tenth', async () => {
+  test('only past a 500k window', async () => {
+    expect(isNudgeWindow(1_000_000)).toBe(true)
+    expect(isNudgeWindow(500_000)).toBe(false)
+    expect(isNudgeWindow(200_000)).toBe(false)
+  })
+
+  const run = (fills: number[]): number[] => {
     let at = 0
     const toasts: number[] = []
-    for (const pct of [30, 56, 58, 59, 61, 66, 72]) {
+    for (const pct of fills) {
       const n = nudge(pct, at)
       at = n.nudgedAt
       if (n.shouldToast) toasts.push(pct)
     }
-    expect(toasts).toEqual([56, 61, 72])
+    return toasts
+  }
+
+  test('once each at 55, 75 and 95', async () => {
+    expect(run([30, 56, 61, 66, 74, 76, 85, 94, 96, 99])).toEqual([56, 76, 96])
+  })
+
+  test('a jump past several steps toasts once', async () => {
+    expect(run([40, 97, 98])).toEqual([97])
   })
 
   test('re-arms when the fill drops after clear or compact', async () => {
-    const first = nudge(66, 0)
-    expect(first).toEqual({ nudgedAt: 60, shouldToast: true })
+    const first = nudge(78, 0)
+    expect(first).toEqual({ nudgedAt: 75, shouldToast: true })
     const dropped = nudge(12, first.nudgedAt)
     expect(dropped).toEqual({ nudgedAt: 0, shouldToast: false })
     expect(nudge(57, dropped.nudgedAt).shouldToast).toBe(true)
+    expect(run([96, 80, 82, 95])).toEqual([96, 95])
   })
 
   test('text', async () => {

@@ -21,6 +21,12 @@ const measure = (over: Partial<SessionMeasureInput> = {}): SessionMeasureInput =
   ...over,
 })
 
+// A 1M window, where the context nudge applies.
+const ctx1m = (percent: number): Partial<SessionMeasureInput> => ({
+  context: { window: 1_000_000, tokens: percent * 10_000, percent },
+  changed: ['context'],
+})
+
 const ctx = (percent: number): Partial<SessionMeasureInput> => ({
   context: { window: 200_000, tokens: percent * 2000, percent },
   changed: ['context'],
@@ -120,20 +126,29 @@ function world(on: On, opts: { env?: Record<string, string>; store?: Record<stri
 }
 
 describe('toast', () => {
-  test('once per new tenth after ctx passes 55', async ($, on) => {
+  test('once each as ctx passes 55, 75 and 95', async ($, on) => {
     const w = world(on)
     await $.session.start(session)
-    for (const p of [40, 56, 58, 61]) await $.session.measure(measure(ctx(p)))
+    for (const p of [40, 56, 61, 68, 76, 88, 95]) await $.session.measure(measure(ctx1m(p)))
     expect(w.toasts).toEqual([
       'context %56 · yeni iş ise /clear, devam için /compact',
-      'context %61 · yeni iş ise /clear, devam için /compact',
+      'context %76 · yeni iş ise /clear, devam için /compact',
+      'context %95 · yeni iş ise /clear, devam için /compact',
     ])
+  })
+
+  test('none on a window of 500k or less: a 200k model, or a 1M model compacting at 500k', async ($, on) => {
+    const w = world(on, { compactWindow: 500_000 })
+    await $.session.start(session)
+    await $.session.measure(measure(ctx(80)))
+    await $.session.measure(measure({ context: { window: 1_000_000, tokens: 335_000, percent: 34 }, changed: ['context'] }))
+    expect(w.toasts).toEqual([])
   })
 
   test('no toast while off', async ($, on) => {
     const w = world(on, { store: { 'wavy-usage:enabled': false } })
     await $.session.start(session)
-    await $.session.measure(measure(ctx(70)))
+    await $.session.measure(measure(ctx1m(70)))
     expect(w.toasts).toEqual([])
   })
 

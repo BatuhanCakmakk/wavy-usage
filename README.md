@@ -45,7 +45,7 @@ The liquid rises and falls with the value and keeps a gentle wave. Rings turn am
 
 The pane is drawn on desktop only. Both the band and the pane follow the app's light or dark theme.
 
-When the context passes 55%, a toast suggests `/clear` for a new task or `/compact` to keep going, once per new tenth.
+When the context passes 55% of a window larger than 500k (a 1M model with no smaller compaction window), a toast suggests `/clear` for a new task or `/compact` to keep going, once each at 55%, 75% and 95%. A window of 500k or less is already kept short, so it gets no toast.
 
 ## Install
 

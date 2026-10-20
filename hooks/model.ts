@@ -114,7 +114,12 @@ export const bandLayout = (columns: number): { showJet: boolean; showCost: boole
 })
 
 export const HISTORY_LIMIT = 6
-export const NUDGE_AT = 55
+// The context fills at which the nudge toasts, once each.
+export const NUDGE_STEPS = [55, 75, 95]
+// The nudge is for long windows, where a full context makes every turn costly. A window of this size or smaller (a
+// smaller model, or a compaction window set on purpose) is already kept short, and Claude Code compacts it on time.
+export const NUDGE_MIN_WINDOW = 500_000
+export const isNudgeWindow = (window: number): boolean => window > NUDGE_MIN_WINDOW
 export const SETTLE_MS = 2000
 
 export type TurnUsage = {
@@ -178,11 +183,13 @@ export const upgradeTurn = (t: LegacyTurn): Turn => {
   return { ...rest, cacheRead: t.cacheRead ?? cache ?? 0, cacheWrite: t.cacheWrite ?? 0 }
 }
 
-// Pass the returned nudgedAt to the next call. When the fill drops below nudgedAt (clear, compact) the nudge re-arms.
+// Pass the returned nudgedAt (the last step toasted) to the next call. A jump past several steps toasts once. When the
+// fill drops below nudgedAt (clear, compact) the steps above the new fill re-arm.
 export const nudge = (ctxPercent: number, nudgedAt: number): { nudgedAt: number; shouldToast: boolean } => {
-  const armed = ctxPercent < nudgedAt ? 0 : nudgedAt
-  if (ctxPercent >= NUDGE_AT && ctxPercent >= armed + 10) {
-    return { nudgedAt: Math.floor(ctxPercent / 10) * 10, shouldToast: true }
+  const step = NUDGE_STEPS.filter(s => ctxPercent >= s).at(-1) ?? 0
+  const armed = ctxPercent < nudgedAt ? step : nudgedAt
+  if (step > armed) {
+    return { nudgedAt: step, shouldToast: true }
   }
   return { nudgedAt: armed, shouldToast: false }
 }

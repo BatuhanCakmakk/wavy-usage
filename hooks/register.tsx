@@ -20,6 +20,7 @@ import {
   FIVE_HOURS,
   forecast,
   heat,
+  isNudgeWindow,
   isStaleLog,
   isUnknown,
   nudge,
@@ -391,7 +392,7 @@ export const register: Register = (on, options) => {
       awaitingSettle = false
       await publish($)
     }
-    if (pct === undefined || !ctxChanged) return r
+    if (pct === undefined || !ctxChanged || !isNudgeWindow(fresh.ctxWindow)) return r
     const n = nudge(pct, nudgedAt)
     nudgedAt = n.nudgedAt
     if (n.shouldToast && (await read($, isEnabled))) $.ui.toast(nudgeText(pct, t), { timeoutMs: 8000 })
