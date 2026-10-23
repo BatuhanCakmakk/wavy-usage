@@ -1,5 +1,7 @@
 # wavy-usage
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/batuhancakmak)
+
 Liquid-filled rings above the Claude Code prompt: your 5-hour and 7-day limit windows, how full the context is, and how long the prompt cache stays warm. A small fighter jet shows the model's effort: the lower the effort, the faster it flies. A side pane shows your last turns, what each one cost, and which projects and models filled the window.
 
 Zero tokens: no model calls. The one request it makes is the usage check `/usage` makes, every 45 seconds, so the limit rings stay current while you are idle too.
@@ -132,6 +134,10 @@ Tests run against the engine's own test kit and cover the pure logic (`hooks/mod
 ## Credits
 
 Inspired by [usage-band](https://github.com/yash-gadodia/claude-mods/tree/main/usage-band) by Yash Gadodia, and by [cache-ttl-timer](https://github.com/WQGGSEY/cache-ttl-timer) and [claude-runway](https://github.com/mtalhasahin/claude-runway).
+
+## Support
+
+If wavy-usage helps you keep an eye on your limits, you can [buy me a coffee](https://buymeacoffee.com/batuhancakmak) ☕. Bug reports and pull requests help just as much.
 
 ## License
 
